@@ -1,0 +1,58 @@
+name: Plym
+website: plym.local
+blog_home: plym.local/blog
+blog_prefix: /blog
+language: en
+template: default
+
+# Fields like `fonts`, `colors`, and `prism.theme` are typically declared by the
+# template itself (see plym/templates/<name>/template.yaml). Anything you set
+# below overrides the template's choice.
+
+# fonts:
+#   heading: Inter
+#   body: Merriweather
+# colors:
+#   primary:    "#1a1a1a"
+#   secondary:  "#6b6b6b"
+#   accent:     "#E9793A"
+#   background: "#ffffff"
+
+prism:
+  enabled: true
+  languages: python
+  # theme: tomorrow      # comes from the template by default; uncomment to override
+
+logo:
+favicon:
+
+http_cache:
+  enabled: true
+  max_age: 300
+  index_max_age: 60
+  public: true
+
+robots:
+  serve: true
+  disallow_paths:
+    - /api/
+
+# Operator-controlled HTML injection points. Plym inlines `head` before </head>
+# and `body` before </body> on every rendered page (posts + index). Use for
+# analytics, verification meta tags, custom <link>s, late-loaded scripts.
+# Strings containing </head> or </body> are rejected.
+inject:
+  head: ""
+  body: ""
+
+pagination:
+  page_size: 10
+
+reading:
+  words_per_minute: 200
+
+backup:
+  frequency: 7
+
+media:
+  location:

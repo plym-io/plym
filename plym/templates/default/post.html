@@ -1,0 +1,91 @@
+<header class="plym-header">
+  <a class="plym-brand" href="/">
+    {% if site.logo %}
+      <img class="plym-logo" src="{{ site.logo }}" alt="{{ site.name }}">
+    {% else %}
+      {{ site.name }}
+    {% endif %}
+  </a>
+</header>
+
+{% macro render_toc(items) %}
+  <ol class="plym-toc-list">
+    {% for item in items %}
+      <li>
+        <a href="#{{ item.id }}">{{ item.name }}</a>
+        {% if item.children %}{{ render_toc(item.children) }}{% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+{% endmacro %}
+
+<div class="plym-post-layout">
+
+  <aside class="plym-toc-col">
+    {% if post.toc and post.toc|length > 1 %}
+      <nav class="plym-toc" aria-label="Table of contents">
+        <p class="plym-toc-label">Contents</p>
+        {{ render_toc(post.toc) }}
+      </nav>
+    {% endif %}
+  </aside>
+
+  <article class="plym-article-col">
+
+    <h1 class="plym-article-title">{{ post.title }}</h1>
+
+    <p class="plym-meta plym-article-meta">
+      <span>{{ post.author.display_name }}</span>
+      {% if post.published_at %}
+        <span class="plym-meta-sep">·</span>
+        <time datetime="{{ post.published_at }}">{{ post.published_at.strftime('%B %d, %Y') }}</time>
+      {% endif %}
+      <span class="plym-meta-sep">·</span>
+      <span>{{ post.reading_time }} min read</span>
+    </p>
+
+    {% if post.cover %}
+      <img class="plym-cover" src="{{ post.cover }}" alt="" fetchpriority="high" decoding="async">
+    {% endif %}
+
+    <div class="plym-content">
+      {{ post.content | safe }}
+    </div>
+
+    {% if post.tags %}
+      <ul class="plym-tags">
+        {% for tag in post.tags %}<li>#{{ tag.name }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+
+    <div class="plym-author">
+      {% if post.author.avatar_url %}
+        <img class="plym-author-avatar"
+             src="{{ post.author.avatar_url }}"
+             alt="{{ post.author.display_name }}">
+      {% else %}
+        <div class="plym-author-avatar plym-author-initials">
+          {{ post.author.display_name[0] | upper }}
+        </div>
+      {% endif %}
+      <div class="plym-author-body">
+        <p class="plym-author-kicker">Written by</p>
+        <p class="plym-author-name">{{ post.author.display_name }}</p>
+        {% if post.published_at %}
+          <p class="plym-author-date">
+            Published on
+            <time datetime="{{ post.published_at }}">{{ post.published_at.strftime('%B %d, %Y') }}</time>
+          </p>
+        {% endif %}
+      </div>
+    </div>
+
+  </article>
+
+  <div class="plym-right-col" aria-hidden="true"></div>
+
+</div>
+
+<footer class="plym-footer">
+  Powered by <a href="https://plym.io">plym</a>
+</footer>

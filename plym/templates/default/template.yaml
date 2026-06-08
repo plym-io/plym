@@ -1,0 +1,12 @@
+fonts:
+  heading: Inter
+  body: Merriweather
+
+colors:
+  primary:    "#1a1a1a"
+  secondary:  "#6b6b6b"
+  accent:     "#E9793A"
+  background: "#FAF9F6"
+
+prism:
+  theme: tomorrow

@@ -1,0 +1,28 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN pip install --no-cache-dir uv
+
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+COPY plym ./plym
+RUN uv pip install --system --no-cache .
+
+ARG PLYM_ADMIN_VERSION=
+ARG PLYM_ADMIN_URL=https://github.com/plym-io/plym-admin/releases/download
+RUN mkdir -p /app/admin && \
+    if [ -n "$PLYM_ADMIN_VERSION" ]; then \
+      python3 -c "import urllib.request, tarfile, io; \
+url='${PLYM_ADMIN_URL}/${PLYM_ADMIN_VERSION}/dist.tar.gz'; \
+print('fetching admin:', url); \
+data=urllib.request.urlopen(url).read(); \
+tarfile.open(fileobj=io.BytesIO(data)).extractall('/app/admin')"; \
+    fi
+
+EXPOSE 8000
+
+CMD ["uvicorn", "plym.main:app", "--host", "0.0.0.0", "--port", "8000"]

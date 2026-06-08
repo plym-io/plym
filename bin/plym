@@ -1,0 +1,149 @@
+#!/bin/sh
+# plym CLI
+#   plym template install <name> [ref]
+#   plym rebuild
+
+set -e
+
+REPO_OWNER="${PLYM_TEMPLATE_REPO_OWNER:-plym-io}"
+REPO_NAME="${PLYM_TEMPLATE_REPO_NAME:-plym-templates}"
+HEALTH_TIMEOUT_SECONDS="${PLYM_HEALTH_TIMEOUT_SECONDS:-60}"
+
+resolve_path() {
+    # readlink -f exists on Linux + recent macOS; fall back to python3 on older macOS
+    if readlink -f "$1" >/dev/null 2>&1; then
+        readlink -f "$1"
+    else
+        python3 -c "import os,sys;print(os.path.realpath(sys.argv[1]))" "$1"
+    fi
+}
+
+SCRIPT_PATH=$(resolve_path "$0")
+PROJECT_ROOT=$(dirname "$(dirname "$SCRIPT_PATH")")
+cd "$PROJECT_ROOT"
+
+usage() {
+    cat <<EOF
+Usage:
+  plym template install <name> [ref]   Download a template into plym/templates/ and switch to it.
+                                       Default ref: main. Refs can be a branch, tag, or commit SHA.
+  plym rebuild                         Restart the api and re-render every published post.
+
+Environment overrides:
+  PLYM_TEMPLATE_REPO_OWNER (default: plym-io)
+  PLYM_TEMPLATE_REPO_NAME  (default: plym-templates)
+  PLYM_HEALTH_TIMEOUT_SECONDS (default: 60)
+EOF
+}
+
+fail() {
+    printf "%s\n" "$1" >&2
+    exit "${2:-1}"
+}
+
+wait_for_health() {
+    tries=0
+    until curl -fsS http://localhost:8000/health >/dev/null 2>&1; do
+        tries=$((tries + 1))
+        if [ "$tries" -gt "$HEALTH_TIMEOUT_SECONDS" ]; then
+            fail "API did not come up within ${HEALTH_TIMEOUT_SECONDS}s"
+        fi
+        sleep 1
+    done
+}
+
+load_creds() {
+    [ -f .env ] || fail ".env not found in $PROJECT_ROOT"
+    EMAIL=$(grep '^PLYM_SUPERUSER_EMAIL=' .env | cut -d= -f2- | head -1)
+    PASSWORD=$(grep '^PLYM_SUPERUSER_PASSWORD=' .env | cut -d= -f2- | head -1)
+    [ -n "$EMAIL" ] && [ -n "$PASSWORD" ] || \
+        fail "Could not read PLYM_SUPERUSER_EMAIL/PASSWORD from .env"
+}
+
+login() {
+    load_creds
+    TOKEN=$(curl -fsS -X POST http://localhost:8000/api/auth/login \
+        -H 'Content-Type: application/json' \
+        -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" \
+        | grep -o '"access_token":"[^"]*"' | sed 's/^"access_token":"//;s/"$//')
+    [ -n "$TOKEN" ] || fail "Login failed for $EMAIL"
+}
+
+refresh_all_posts() {
+    login
+    ids=$(curl -fsS "http://localhost:8000/api/posts?include_drafts=true&page_size=200" \
+            -H "Authorization: Bearer $TOKEN" \
+            | python3 -c "import sys,json;print(' '.join(str(p['id']) for p in json.load(sys.stdin)['items']))")
+    if [ -z "$ids" ]; then
+        printf "No posts to refresh.\n"
+        return
+    fi
+    count=0
+    for id in $ids; do
+        curl -fsS -o /dev/null -X POST "http://localhost:8000/api/posts/$id/refresh" \
+             -H "Authorization: Bearer $TOKEN"
+        count=$((count + 1))
+    done
+    printf "Refreshed %s post(s).\n" "$count"
+}
+
+cmd_template_install() {
+    name="$1"
+    ref="${2:-main}"
+    [ -n "$name" ] || { usage; exit 1; }
+
+    target="plym/templates/$name"
+
+    printf "Downloading %s from %s/%s@%s ...\n" "$name" "$REPO_OWNER" "$REPO_NAME" "$ref"
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+
+    url="https://codeload.github.com/$REPO_OWNER/$REPO_NAME/tar.gz/$ref"
+    if ! curl -fsSL "$url" \
+        | tar -xz -C "$tmp" --strip-components=1 "$REPO_NAME-$ref/$name" 2>/dev/null; then
+        fail "Template '$name' not found in $REPO_OWNER/$REPO_NAME@$ref"
+    fi
+    [ -d "$tmp/$name" ] || fail "Template '$name' not found in $REPO_OWNER/$REPO_NAME@$ref"
+
+    rm -rf "$target"
+    mv "$tmp/$name" "$target"
+    printf "Installed to %s\n" "$target"
+
+    # Switch config.yaml's template field
+    if grep -q '^template:' config.yaml; then
+        sed -i.bak "s|^template: .*|template: $name|" config.yaml
+        rm -f config.yaml.bak
+    else
+        printf "template: %s\n" "$name" >> config.yaml
+    fi
+    printf "config.yaml now uses template: %s\n" "$name"
+
+    printf "Restarting api ...\n"
+    docker compose restart api >/dev/null
+    wait_for_health
+    printf "API ready.\n"
+
+    refresh_all_posts
+    printf "Done. Template '%s' is live.\n" "$name"
+}
+
+cmd_rebuild() {
+    printf "Restarting api ...\n"
+    docker compose restart api >/dev/null
+    wait_for_health
+    refresh_all_posts
+    printf "Rebuild complete.\n"
+}
+
+# --- dispatch ---
+case "${1:-}" in
+    template)
+        case "${2:-}" in
+            install) shift 2; cmd_template_install "$@" ;;
+            *)       usage; exit 1 ;;
+        esac
+        ;;
+    rebuild) cmd_rebuild ;;
+    -h|--help|help|"") usage ;;
+    *) usage; exit 1 ;;
+esac

@@ -1,0 +1,39 @@
+<header class="plym-header">
+  <a class="plym-brand" href="/">
+    {% if site.logo %}
+      <img class="plym-logo" src="{{ site.logo }}" alt="{{ site.name }}">
+    {% else %}
+      {{ site.name }}
+    {% endif %}
+  </a>
+</header>
+
+<main class="plym-index-main">
+  {% if posts %}
+    {% for post in posts %}
+      <article class="plym-card">
+        <h2 class="plym-card-title">
+          <a href="{{ site.blog_prefix }}/{{ post.slug }}">{{ post.title }}</a>
+        </h2>
+        {% if post.excerpt %}
+          <p class="plym-card-excerpt">{{ post.excerpt }}</p>
+        {% endif %}
+        <p class="plym-meta plym-card-meta">
+          <span>{{ post.author.display_name }}</span>
+          {% if post.published_at %}
+            <span class="plym-meta-sep">·</span>
+            <time datetime="{{ post.published_at }}">{{ post.published_at.strftime('%b %d, %Y') }}</time>
+          {% endif %}
+          <span class="plym-meta-sep">·</span>
+          <span>{{ post.reading_time }} min read</span>
+        </p>
+      </article>
+    {% endfor %}
+  {% else %}
+    <p class="plym-empty">Nothing here yet. The first post is waiting to be written.</p>
+  {% endif %}
+</main>
+
+<footer class="plym-footer">
+  Powered by <a href="https://plym.io">plym</a>
+</footer>

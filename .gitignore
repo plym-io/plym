@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+config.yaml
+storage/
+.DS_Store
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+dist/
+cc-docs/
+*.egg-info/
+.plym-credentials

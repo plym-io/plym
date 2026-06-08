@@ -1,0 +1,112 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+:root {
+  --plym-pale:   color-mix(in srgb, var(--color-accent) 9%,  white);
+  --plym-faint:  color-mix(in srgb, var(--color-accent) 5%,  var(--color-background));
+  --plym-border: color-mix(in srgb, var(--color-accent) 20%, white);
+
+  --n-border:  #E9E2DB;
+  --n-surface: #F5F0EA;
+  --n-muted:   #9B8E86;
+  --n-code-bg: #1E1612;
+}
+
+body {
+  margin: 0;
+  font-family: 'Merriweather', Georgia, 'Times New Roman', serif;
+  font-size: 18px;
+  line-height: 1.78;
+  color: var(--color-primary);
+  background: var(--color-background);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "kern" 1, "liga" 1;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-weight: 900;
+  line-height: 1.2;
+  letter-spacing: -0.022em;
+  color: var(--color-primary);
+  margin: 0;
+}
+
+p { margin: 0 0 1.3em; }
+
+img { max-width: 100%; height: auto; display: block; }
+
+a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  transition: opacity 0.14s ease;
+}
+a:hover { opacity: 0.7; text-decoration-thickness: 2.5px; }
+
+.plym-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem 2.5rem;
+  border-bottom: 1px solid var(--n-border);
+}
+
+.plym-brand {
+  font-family: 'Inter', sans-serif;
+  font-size: 1rem;
+  font-weight: 900;
+  letter-spacing: -0.015em;
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: opacity 0.14s ease;
+}
+.plym-brand:hover { opacity: 0.65; text-decoration: none; text-decoration-thickness: 0; }
+
+.plym-logo {
+  max-height: 30px;
+  width: auto;
+}
+
+.plym-footer {
+  border-top: 1px solid var(--n-border);
+  padding: 1.75rem 2.5rem;
+  text-align: center;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.775rem;
+  font-weight: 600;
+  color: var(--n-muted);
+  letter-spacing: 0.03em;
+}
+.plym-footer a { color: inherit; }
+.plym-footer a:hover { opacity: 0.7; }
+
+.plym-meta {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.775rem;
+  font-weight: 600;
+  color: var(--n-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0;
+}
+.plym-meta time { font-variant-numeric: tabular-nums; }
+.plym-meta-sep { color: var(--color-accent); }
