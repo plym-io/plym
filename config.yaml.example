@@ -23,8 +23,8 @@ prism:
   languages: python
   # theme: tomorrow      # comes from the template by default; uncomment to override
 
-logo:
-favicon:
+logo: https://plym.blob.core.windows.net/assets/logo.webp
+favicon: https://plym.blob.core.windows.net/assets/favicon.ico
 
 http_cache:
   enabled: true
