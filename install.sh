@@ -31,6 +31,20 @@ for tool in docker git openssl curl; do
     command -v "$tool" >/dev/null 2>&1 || fail "$tool is required and not in PATH"
 done
 docker compose version >/dev/null 2>&1 || fail "docker compose v2 is required"
+
+# Verify the docker daemon is actually reachable from this shell. Without this,
+# the build below would fail silently when the user is not in the docker group.
+if ! docker info >/dev/null 2>&1; then
+    fail "Cannot connect to the Docker daemon.
+
+  Common fixes:
+    macOS  -  open -a Docker, wait for it to start, then re-run.
+    Linux  -  sudo systemctl start docker
+              For permission errors, add your user to the docker group:
+                sudo usermod -aG docker \$USER
+              Then log out and log back in. Or re-run this installer with sudo."
+fi
+
 [ -e "$INSTALL_DIR" ] && fail "Directory '$INSTALL_DIR' already exists. Remove it or set PLYM_DIR=somewhere-else"
 
 say "Fetching plym"
@@ -51,7 +65,21 @@ sed -i.bak "s|^name:.*|name: $NAME|" config.yaml
 rm -f config.yaml.bak
 
 say "Building images (first run takes ~1 minute)"
-docker compose up -d --build >/dev/null 2>&1
+# Output is not suppressed: the user needs to see build progress, and any
+# failure (network, missing release asset, disk full) must be visible.
+if ! docker compose up -d --build; then
+    printf "\n"
+    fail "docker compose failed. The actual error is in the output above.
+
+  Common causes:
+    - PLYM_ADMIN_VERSION in .env points at a plym-admin tag that has no
+      dist.tar.gz release asset attached.
+    - Network error reaching GitHub during the admin SPA fetch.
+    - Disk full.
+
+  To retry from this directory:
+    cd $(pwd) && docker compose up -d --build"
+fi
 
 say "Waiting for app to come up"
 tries=0
