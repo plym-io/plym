@@ -30,8 +30,7 @@ services:
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./plym:/app/plym:ro
-      - plym_storage:/app/storage
+      - ./storage:/app/storage
 
 volumes:
   plym_db:
-  plym_storage:
