@@ -240,6 +240,7 @@ cat <<EOF
   ${BOLD}plym${RESET} CLI installed to ${ACCENT}$CLI_INSTALLED_AT${RESET} ${DIM}(this blog is now active)${RESET}
 ${PATH_NOTE}    ${BOLD}plym list${RESET}                      — show every blog on this machine
     ${BOLD}plym use <name>${RESET}                — switch which blog plym targets
+    ${BOLD}plym set url <url> --nginx${RESET}     — serve this blog on your domain (also --caddy, --traefik)
     ${BOLD}plym template install <name>${RESET}   — fetch a template from plym-io/plym-templates
     ${BOLD}plym rebuild${RESET}                   — restart the api and re-render every published post
 

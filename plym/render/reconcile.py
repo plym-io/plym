@@ -11,6 +11,8 @@ log = logging.getLogger("plym.reconcile")
 async def reconcile_generated_files() -> int:
     if not settings.generated_dir.exists():
         return 0
+    for path in settings.generated_dir.glob("*.html.tmp"):
+        path.unlink()
     try:
         factory = get_session_factory()
         async with factory() as session:

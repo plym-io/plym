@@ -111,8 +111,10 @@ class PostPipeline:
         )
 
         target = settings.generated_dir / f"{slug}.html"
-        async with aiofiles.open(target, "w", encoding="utf-8") as f:
+        tmp = target.with_suffix(".html.tmp")
+        async with aiofiles.open(tmp, "w", encoding="utf-8") as f:
             await f.write(final)
+        tmp.replace(target)
 
         self._store.delete_prefix("index:")
         return PostRenderResult(

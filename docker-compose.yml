@@ -25,12 +25,22 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "${PLYM_PORT:-9173}:8000"
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./plym:/app/plym:ro
       - ./storage:/app/storage
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      PLYM_BLOG_PREFIX: ${PLYM_BLOG_PREFIX:-/blog}
+    depends_on:
+      - api
+    ports:
+      - "${PLYM_PORT:-9173}:80"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./storage:/srv/storage:ro
 
 volumes:
   plym_db:

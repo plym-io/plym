@@ -120,6 +120,11 @@ usage() {
 Usage:
   plym list                            Show every blog on this machine (active one in green).
   plym use <name|dir>                  Set the active blog for commands run outside a blog dir.
+  plym set url <url> --<proxy>         Serve the active blog on your own domain through a reverse
+                                       proxy. <url> is a domain, subdomain, or domain/path, e.g.
+                                       blog.flapico.com or flapico.com/blog.
+                                       Proxies: --nginx, --caddy, --traefik.
+  plym unset url                       Remove the reverse proxy config plym created.
   plym template install <name> [ref]   Download a template into plym/templates/ and switch to it.
                                        Default ref: main. Refs can be a branch, tag, or commit SHA.
   plym rebuild                         Restart the api and re-render every published post.
@@ -205,6 +210,433 @@ install_template() {
     fi
 }
 
+DOCS_URL="https://plym.io/docs/reverse-proxy"
+
+PROXY_HEADERS='        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;'
+
+port_in_use() {
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+    elif command -v nc >/dev/null 2>&1; then
+        nc -z 127.0.0.1 "$1" >/dev/null 2>&1
+    else
+        return 1
+    fi
+}
+
+set_env_key() {
+    if grep -q "^$1=" .env 2>/dev/null; then
+        sed -i.bak "s|^$1=.*|$1=$2|" .env && rm -f .env.bak
+    else
+        printf '%s=%s\n' "$1" "$2" >> .env
+    fi
+}
+
+unset_env_key() {
+    sed -i.bak "/^$1=/d" .env && rm -f .env.bak
+}
+
+set_config_key() {
+    if grep -q "^$1:" config.yaml 2>/dev/null; then
+        sed -i.bak "s|^$1: .*|$1: $2|" config.yaml && rm -f config.yaml.bak
+    else
+        printf '%s: %s\n' "$1" "$2" >> config.yaml
+    fi
+}
+
+pkg_install() {
+    if command -v apt-get >/dev/null 2>&1; then
+        $SUDO apt-get update -qq && $SUDO apt-get install -y -qq "$@"
+    elif command -v dnf >/dev/null 2>&1; then
+        $SUDO dnf install -y "$@"
+    elif command -v yum >/dev/null 2>&1; then
+        $SUDO yum install -y "$@"
+    elif command -v pacman >/dev/null 2>&1; then
+        $SUDO pacman -S --noconfirm "$@"
+    elif command -v zypper >/dev/null 2>&1; then
+        $SUDO zypper install -y "$@"
+    elif command -v apk >/dev/null 2>&1; then
+        $SUDO apk add "$@"
+    elif command -v brew >/dev/null 2>&1; then
+        brew install "$@"
+    else
+        return 1
+    fi
+}
+
+dns_preflight() {
+    server_ip=$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null) || server_ip=""
+    host_ip=$(python3 -c "import socket,sys;print(socket.gethostbyname(sys.argv[1]))" "$HOST" 2>/dev/null) || host_ip=""
+    if [ -z "$host_ip" ]; then
+        fail "$HOST does not resolve yet. Add an A record for $HOST -> ${server_ip:-this server}, wait for DNS to propagate, then re-run."
+    fi
+    if [ -z "$server_ip" ]; then
+        note "Could not determine this machine's public IP — skipping the DNS check."
+        return 0
+    fi
+    if [ "$host_ip" != "$server_ip" ]; then
+        fail "$HOST resolves to $host_ip but this machine is $server_ip. Point the A record at $server_ip and re-run."
+    fi
+}
+
+proxy_locations() {
+    if [ -n "$URL_PATH" ]; then
+        cat <<EOF
+    location = $URL_PATH {
+        proxy_pass http://127.0.0.1:$PORT/;
+$PROXY_HEADERS
+    }
+
+    location $URL_PATH/ {
+        proxy_pass http://127.0.0.1:$PORT;
+$PROXY_HEADERS
+    }
+
+    location /webfonts/ {
+        proxy_pass http://127.0.0.1:$PORT;
+$PROXY_HEADERS
+    }
+
+    location /media/ {
+        proxy_pass http://127.0.0.1:$PORT;
+$PROXY_HEADERS
+    }
+
+    location /static/ {
+        proxy_pass http://127.0.0.1:$PORT;
+$PROXY_HEADERS
+    }
+EOF
+    else
+        cat <<EOF
+    location / {
+        proxy_pass http://127.0.0.1:$PORT;
+$PROXY_HEADERS
+    }
+EOF
+    fi
+}
+
+nginx_vhost() {
+    locations=$(proxy_locations)
+    redirect=""
+    [ -n "$URL_PATH" ] && redirect="
+    location = / {
+        return 302 $URL_PATH;
+    }
+"
+    cat <<EOF
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $HOST;
+$redirect
+$locations
+}
+EOF
+}
+
+nginx_has_domain() {
+    $SUDO nginx -T 2>/dev/null \
+        | awk '$1 == "server_name" {for (i = 2; i <= NF; i++) {gsub(";", "", $i); print $i}}' \
+        | grep -Fxq "$HOST"
+}
+
+nginx_conf_target() {
+    if [ -d /etc/nginx/sites-available ]; then
+        NGINX_CONF="/etc/nginx/sites-available/plym-$HOST.conf"
+        NGINX_LINK="/etc/nginx/sites-enabled/plym-$HOST.conf"
+    elif [ -d /etc/nginx/conf.d ]; then
+        NGINX_CONF="/etc/nginx/conf.d/plym-$HOST.conf"
+        NGINX_LINK=""
+    elif command -v brew >/dev/null 2>&1 && [ -d "$(brew --prefix 2>/dev/null)/etc/nginx/servers" ]; then
+        NGINX_CONF="$(brew --prefix)/etc/nginx/servers/plym-$HOST.conf"
+        NGINX_LINK=""
+    else
+        fail "Could not find an nginx config directory (looked for sites-available and conf.d)."
+    fi
+}
+
+reload_nginx() {
+    $SUDO nginx -t >/dev/null 2>&1 || return 1
+    $SUDO systemctl reload nginx 2>/dev/null || $SUDO nginx -s reload
+}
+
+run_certbot() {
+    EMAIL=$(grep '^PLYM_SUPERUSER_EMAIL=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    case "$EMAIL" in
+        *@*.local|"") email_args="--register-unsafely-without-email" ;;
+        *) email_args="-m $EMAIL" ;;
+    esac
+    $SUDO certbot --nginx -d "$HOST" --non-interactive --agree-tos --redirect $email_args
+}
+
+setup_nginx() {
+    if ! command -v nginx >/dev/null 2>&1; then
+        if port_in_use 80 || port_in_use 443; then
+            fail "nginx isn't installed but something else is listening on 80/443. Free those ports or configure that proxy yourself: $DOCS_URL"
+        fi
+        spin "Installing nginx" pkg_install nginx || fail "Could not install nginx. Install it yourself, then re-run."
+        $SUDO systemctl enable --now nginx >/dev/null 2>&1 || true
+    fi
+    dns_preflight
+    if nginx_has_domain; then
+        deleg_dir="/etc/nginx/plym/$HOST"
+        deleg_file="$deleg_dir/$PROJECT_LABEL.conf"
+        $SUDO mkdir -p "$deleg_dir"
+        proxy_locations | $SUDO tee "$deleg_file" >/dev/null
+        if $SUDO nginx -T 2>/dev/null | grep -q "plym/$HOST"; then
+            spin "Reloading nginx" reload_nginx || fail "nginx config test failed (nginx -t has details)."
+            say "Route added to your existing $HOST server block."
+        else
+            say "Wrote $deleg_file"
+            note "$HOST is already configured in your nginx, so plym won't touch that server block."
+            printf "  Add this line inside your existing %sserver { }%s for %s, then reload nginx:\n\n" "$BOLD" "$RESET" "$HOST"
+            printf "    %sinclude /etc/nginx/plym/%s/*.conf;%s\n\n" "$BOLD" "$HOST" "$RESET"
+            note "Every future plym blog on $HOST will then work with no manual steps."
+        fi
+        return 0
+    fi
+    nginx_conf_target
+    nginx_vhost | $SUDO tee "$NGINX_CONF" >/dev/null
+    [ -n "$NGINX_LINK" ] && $SUDO ln -sf "$NGINX_CONF" "$NGINX_LINK"
+    if ! $SUDO nginx -t >/dev/null 2>&1; then
+        $SUDO rm -f "$NGINX_CONF" "$NGINX_LINK"
+        fail "Generated vhost failed nginx -t — removed it again, your nginx is untouched. Run '$SUDO nginx -t' for details."
+    fi
+    spin "Reloading nginx" reload_nginx
+    if ! command -v certbot >/dev/null 2>&1; then
+        spin "Installing certbot" pkg_install certbot python3-certbot-nginx \
+            || spin "Installing certbot" pkg_install certbot \
+            || true
+    fi
+    if command -v certbot >/dev/null 2>&1; then
+        spin "Obtaining TLS certificate for $HOST" run_certbot \
+            || note "certbot failed — $HOST works over HTTP. Fix DNS/firewall and run: $SUDO certbot --nginx -d $HOST"
+    else
+        note "certbot is not installed — $HOST works over HTTP. For HTTPS run: $SUDO certbot --nginx -d $HOST"
+    fi
+}
+
+caddy_site() {
+    if [ -n "$URL_PATH" ]; then
+        cat <<EOF
+$HOST {
+	redir / $URL_PATH 302
+
+	handle $URL_PATH {
+		rewrite * /
+		reverse_proxy 127.0.0.1:$PORT
+	}
+
+	handle $URL_PATH/* {
+		reverse_proxy 127.0.0.1:$PORT
+	}
+
+	handle /webfonts/* {
+		reverse_proxy 127.0.0.1:$PORT
+	}
+
+	handle /media/* {
+		reverse_proxy 127.0.0.1:$PORT
+	}
+
+	handle /static/* {
+		reverse_proxy 127.0.0.1:$PORT
+	}
+}
+EOF
+    else
+        cat <<EOF
+$HOST {
+	reverse_proxy 127.0.0.1:$PORT
+}
+EOF
+    fi
+}
+
+install_caddy() {
+    if command -v apt-get >/dev/null 2>&1; then
+        $SUDO apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https >/dev/null 2>&1 || true
+        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+            | $SUDO gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+            | $SUDO tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
+        $SUDO apt-get update -qq && $SUDO apt-get install -y -qq caddy
+    else
+        pkg_install caddy
+    fi
+}
+
+reload_caddy() {
+    $SUDO systemctl reload caddy 2>/dev/null \
+        || $SUDO caddy reload --config /etc/caddy/Caddyfile
+}
+
+setup_caddy() {
+    if ! command -v caddy >/dev/null 2>&1; then
+        if port_in_use 80 || port_in_use 443; then
+            fail "caddy isn't installed but something else is listening on 80/443. Free those ports or configure that proxy yourself: $DOCS_URL"
+        fi
+        spin "Installing caddy" install_caddy || fail "Could not install caddy (https://caddyserver.com/docs/install). Install it yourself, then re-run."
+        $SUDO systemctl enable --now caddy >/dev/null 2>&1 || true
+    fi
+    dns_preflight
+    main_caddyfile="/etc/caddy/Caddyfile"
+    site_file="/etc/caddy/plym/$HOST.caddy"
+    if [ -f "$main_caddyfile" ] && grep -Eq "^$HOST([[:space:],{]|$)" "$main_caddyfile" 2>/dev/null; then
+        say "$HOST is already configured in your Caddyfile — plym won't touch that site block."
+        printf "  Add these routes inside your existing %s%s { }%s block, then reload caddy:\n\n" "$BOLD" "$HOST" "$RESET"
+        caddy_site | sed '1d;$d'
+        printf "\n"
+        return 0
+    fi
+    $SUDO mkdir -p /etc/caddy/plym
+    caddy_site | $SUDO tee "$site_file" >/dev/null
+    if ! grep -q "import /etc/caddy/plym/\*.caddy" "$main_caddyfile" 2>/dev/null; then
+        printf '\nimport /etc/caddy/plym/*.caddy\n' | $SUDO tee -a "$main_caddyfile" >/dev/null
+    fi
+    if ! $SUDO caddy validate --config "$main_caddyfile" >/dev/null 2>&1; then
+        $SUDO rm -f "$site_file"
+        fail "Generated site failed caddy validate — removed it again, your caddy is untouched."
+    fi
+    spin "Reloading caddy" reload_caddy
+    note "Caddy fetches and renews the TLS certificate for $HOST automatically."
+}
+
+setup_traefik() {
+    rule="Host(\`$HOST\`)"
+    [ -n "$URL_PATH" ] && rule="Host(\`$HOST\`) && (PathPrefix(\`$URL_PATH\`) || PathPrefix(\`/webfonts\`) || PathPrefix(\`/media\`) || PathPrefix(\`/static\`))"
+    cat > docker-compose.traefik.yml <<EOF
+services:
+  caddy:
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.$PROJECT_LABEL.rule: $rule
+      traefik.http.routers.$PROJECT_LABEL.entrypoints: websecure
+      traefik.http.routers.$PROJECT_LABEL.tls.certresolver: letsencrypt
+      traefik.http.services.$PROJECT_LABEL.loadbalancer.server.port: "80"
+EOF
+    say "Wrote docker-compose.traefik.yml"
+    note "Traefik setups vary, so finish these three steps yourself:"
+    printf "    1. Edit %sentrypoints%s and %scertresolver%s in docker-compose.traefik.yml to match your traefik.\n" "$BOLD" "$RESET" "$BOLD" "$RESET"
+    printf "    2. Make sure traefik shares a docker network with this project (or watches the docker socket).\n"
+    printf "    3. Run: %sCOMPOSE_FILE=docker-compose.yml:docker-compose.traefik.yml docker compose up -d%s\n" "$BOLD" "$RESET"
+    note "More: $DOCS_URL"
+}
+
+apply_site_settings() {
+    docker compose up -d
+    docker compose restart api
+    wait_for_health
+    refresh_all_posts
+}
+
+cmd_set_url() {
+    URL_ARG=""
+    PROXY=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --nginx)   PROXY=nginx; shift ;;
+            --caddy)   PROXY=caddy; shift ;;
+            --traefik) PROXY=traefik; shift ;;
+            -*) fail "Unknown option: $1" ;;
+            *) URL_ARG="$1"; shift ;;
+        esac
+    done
+    [ -n "$URL_ARG" ] || { usage; exit 1; }
+    [ -n "$PROXY" ] || fail "Pick a reverse proxy: --nginx, --caddy or --traefik.
+  Using a CDN or something else? $DOCS_URL"
+
+    enter_project
+
+    stripped=$(printf '%s' "$URL_ARG" | sed 's|^https\{0,1\}://||; s|/\{1,\}$||')
+    HOST=${stripped%%/*}
+    URL_PATH=""
+    case "$stripped" in
+        */*) URL_PATH="/${stripped#*/}" ;;
+    esac
+    [ -n "$HOST" ] || fail "Could not parse a domain from '$URL_ARG'."
+    case "$HOST" in
+        *:*) fail "Drop the port — plym serves $HOST through the proxy on 80/443." ;;
+    esac
+
+    PUBLIC_URL="$HOST$URL_PATH"
+    case "$PROXY" in
+        nginx)   plan="install nginx if missing, write an nginx config for $HOST, reload nginx, obtain a TLS certificate via certbot" ;;
+        caddy)   plan="install caddy if missing, write a caddy site for $HOST, reload caddy (TLS is automatic)" ;;
+        traefik) plan="write docker-compose.traefik.yml with router labels for you to finish (no sudo)" ;;
+    esac
+    note "plym will: $plan."
+    if [ -e /dev/tty ]; then
+        printf "%s%s%s → %s%s%s  proceed? %s[Y/n]%s " \
+            "$BOLD" "$PUBLIC_URL" "$RESET" "$GREEN" "$PROJECT_LABEL" "$RESET" "$DIM" "$RESET" > /dev/tty
+        read confirm < /dev/tty || true
+        case "$confirm" in n|N|no|NO) fail "Cancelled." ;; esac
+    fi
+
+    SUDO=""
+    if [ "$PROXY" != "traefik" ] && [ "$(id -u)" != 0 ]; then
+        SUDO="sudo"
+        sudo -v || fail "sudo is required to configure $PROXY. Prefer no sudo? $DOCS_URL"
+    fi
+
+    if [ -n "$URL_PATH" ]; then
+        set_config_key blog_prefix "$URL_PATH"
+        set_env_key PLYM_BLOG_PREFIX "$URL_PATH"
+        BLOG_PREFIX="$URL_PATH"
+    else
+        BLOG_PREFIX=$(grep '^blog_prefix:' config.yaml 2>/dev/null | awk '{print $2}')
+        BLOG_PREFIX="${BLOG_PREFIX:-/blog}"
+    fi
+    set_config_key website "$HOST"
+    set_config_key blog_home "$HOST$BLOG_PREFIX"
+    set_env_key PLYM_PUBLIC_URL "$PUBLIC_URL"
+    set_env_key PLYM_PROXY "$PROXY"
+
+    setup_$PROXY
+
+    spin "Re-rendering with the new address" apply_site_settings
+
+    printf "\n  %s%s%s now serves %s%s%s\n" "$GREEN" "$PUBLIC_URL" "$RESET" "$BOLD" "$PROJECT_LABEL" "$RESET"
+    note "  Undo anytime with 'plym unset url'."
+    printf "\n"
+}
+
+cmd_unset_url() {
+    enter_project
+    PUBLIC_URL=$(grep '^PLYM_PUBLIC_URL=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    PROXY=$(grep '^PLYM_PROXY=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    [ -n "$PUBLIC_URL" ] || fail "No public URL is set for $PROJECT_LABEL."
+    HOST=${PUBLIC_URL%%/*}
+    SUDO=""
+    [ "$PROXY" != "traefik" ] && [ "$(id -u)" != 0 ] && SUDO="sudo"
+    case "$PROXY" in
+        nginx)
+            $SUDO rm -f "/etc/nginx/sites-available/plym-$HOST.conf" \
+                        "/etc/nginx/sites-enabled/plym-$HOST.conf" \
+                        "/etc/nginx/conf.d/plym-$HOST.conf" \
+                        "/etc/nginx/plym/$HOST/$PROJECT_LABEL.conf"
+            $SUDO rmdir "/etc/nginx/plym/$HOST" 2>/dev/null || true
+            spin "Reloading nginx" reload_nginx || true
+            ;;
+        caddy)
+            $SUDO rm -f "/etc/caddy/plym/$HOST.caddy"
+            spin "Reloading caddy" reload_caddy || true
+            ;;
+        traefik)
+            rm -f docker-compose.traefik.yml
+            note "If COMPOSE_FILE references docker-compose.traefik.yml, remove it and run 'docker compose up -d'."
+            ;;
+    esac
+    unset_env_key PLYM_PUBLIC_URL
+    unset_env_key PLYM_PROXY
+    say "$PUBLIC_URL removed from $PROXY. The blog still runs on :$PORT."
+}
+
 cmd_list() {
     active=""
     [ -f "$ACTIVE_FILE" ] && active=$(cat "$ACTIVE_FILE")
@@ -281,6 +713,18 @@ done
 case "${1:-}" in
     list) cmd_list ;;
     use) shift; cmd_use "$@" ;;
+    set)
+        case "${2:-}" in
+            url) shift 2; cmd_set_url "$@" ;;
+            *)   usage; exit 1 ;;
+        esac
+        ;;
+    unset)
+        case "${2:-}" in
+            url) shift 2; cmd_unset_url ;;
+            *)   usage; exit 1 ;;
+        esac
+        ;;
     template)
         case "${2:-}" in
             install) shift 2; cmd_template_install "$@" ;;
