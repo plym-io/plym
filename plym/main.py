@@ -49,11 +49,16 @@ async def lifespan(app: FastAPI):
     await ensure_superuser()
     await reconcile_generated_files()
     artifacts = await run_build(site)
+    if artifacts.assets.favicon is not None:
+        site.favicon = artifacts.assets.favicon.web_path
+    if artifacts.assets.logo is not None:
+        site.logo = artifacts.assets.logo.web_path
 
     app.state.site = site
     app.state.settings = settings
     app.state.css = artifacts.css
     app.state.prism_js = artifacts.prism_js
+    app.state.assets = artifacts.assets
 
     scheduler = BackupScheduler(site.backup.frequency)
     scheduler.start()
