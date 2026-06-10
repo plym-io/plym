@@ -2,7 +2,7 @@
 # plym CLI
 #   plym list
 #   plym use <name|dir>
-#   plym template install <name> [ref]
+#   plym template install <name> [ref] [--update]
 #   plym rebuild
 # Global: -C <dir> / --project <dir> / PLYM_DIR target a specific blog.
 
@@ -125,8 +125,9 @@ Usage:
                                        blog.flapico.com or flapico.com/blog.
                                        Proxies: --nginx, --caddy, --traefik.
   plym unset url                       Remove the reverse proxy config plym created.
-  plym template install <name> [ref]   Download a template into plym/templates/ and switch to it.
-                                       Default ref: main. Refs can be a branch, tag, or commit SHA.
+  plym template install <name> [ref]   Switch to a template. Uses the local copy in plym/templates/
+                                       if present, else downloads it. Pass --update to force a fresh
+                                       download. Default ref: main. Refs are a branch, tag, or SHA.
   plym admin update                    Refetch the admin app release and rebuild the api image.
   plym rebuild                         Restart the api and re-render every published post.
 
@@ -188,7 +189,21 @@ restart_api() {
     wait_for_health
 }
 
-install_template() {
+template_exists_local() {
+    [ -d "plym/templates/$1" ]
+}
+
+set_active_template() {
+    name="$1"
+    if grep -q '^template:' config.yaml; then
+        sed -i.bak "s|^template: .*|template: $name|" config.yaml
+        rm -f config.yaml.bak
+    else
+        printf "template: %s\n" "$name" >> config.yaml
+    fi
+}
+
+fetch_template_remote() {
     name="$1"; ref="$2"
     target="plym/templates/$name"
     tmp=$(mktemp -d)
@@ -203,12 +218,6 @@ install_template() {
     rm -rf "$target"
     mv "$tmp/$name" "$target"
     rm -rf "$tmp"
-    if grep -q '^template:' config.yaml; then
-        sed -i.bak "s|^template: .*|template: $name|" config.yaml
-        rm -f config.yaml.bak
-    else
-        printf "template: %s\n" "$name" >> config.yaml
-    fi
 }
 
 DOCS_URL="https://plym.io/docs/reverse-proxy"
@@ -660,12 +669,30 @@ cmd_use() {
 
 cmd_template_install() {
     enter_project
-    name="$1"
-    ref="${2:-main}"
+    update=""
+    name=""
+    ref=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --update|-u) update=1 ;;
+            -*) fail "Unknown option: $1" ;;
+            *)
+                if [ -z "$name" ]; then name="$1"
+                elif [ -z "$ref" ]; then ref="$1"
+                fi ;;
+        esac
+        shift
+    done
+    ref="${ref:-main}"
     [ -n "$name" ] || { usage; exit 1; }
 
     note "Installing template '$name' into $PROJECT_LABEL"
-    spin "Downloading $name from $REPO_OWNER/$REPO_NAME@$ref" install_template "$name" "$ref"
+    if [ -z "$update" ] && template_exists_local "$name"; then
+        note "Using local template (pass --update to fetch the latest from $REPO_OWNER/$REPO_NAME)"
+    else
+        spin "Downloading $name from $REPO_OWNER/$REPO_NAME@$ref" fetch_template_remote "$name" "$ref"
+    fi
+    set_active_template "$name"
     spin "Restarting api" restart_api
     spin "Re-rendering published posts" refresh_all_posts
     say "Template '$name' is live."
