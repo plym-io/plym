@@ -15,9 +15,38 @@ HEALTH_TIMEOUT_SECONDS="${PLYM_HEALTH_TIMEOUT_SECONDS:-60}"
 PLYM_HOME="${PLYM_CONFIG_HOME:-$HOME/.config/plym}"
 ACTIVE_FILE="$PLYM_HOME/active"
 
-fail() {
-    printf "%s\n" "$1" >&2
-    exit "${2:-1}"
+BOLD=$(printf '\033[1m')
+DIM=$(printf '\033[2m')
+ACCENT=$(printf '\033[38;5;208m')
+GREEN=$(printf '\033[38;5;40m')
+RESET=$(printf '\033[0m')
+
+say()  { printf "%s→%s %s\n" "$ACCENT" "$RESET" "$1"; }
+note() { printf "%s%s%s\n" "$DIM" "$1" "$RESET"; }
+fail() { printf "%s✗%s %s\n" "$ACCENT" "$RESET" "$1" >&2; exit "${2:-1}"; }
+
+[ -e /dev/tty ] && SPIN_OUT=/dev/tty || SPIN_OUT=/dev/stdout
+spin() {
+    msg="$1"; shift
+    log=$(mktemp)
+    "$@" >"$log" 2>&1 &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        for frame in ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏; do
+            kill -0 "$pid" 2>/dev/null || break
+            printf "\r%s%s%s %s " "$ACCENT" "$frame" "$RESET" "$msg" > "$SPIN_OUT"
+            sleep 0.08
+        done
+    done
+    rc=0; wait "$pid" || rc=$?
+    if [ "$rc" -eq 0 ]; then
+        printf "\r%s✓%s %s\n" "$ACCENT" "$RESET" "$msg" > "$SPIN_OUT"
+    else
+        printf "\r%s✗%s %s\n" "$ACCENT" "$RESET" "$msg" > "$SPIN_OUT"
+        cat "$log" >&2
+    fi
+    rm -f "$log"
+    return "$rc"
 }
 
 abspath() {
@@ -82,12 +111,14 @@ enter_project() {
     PROJECT_ROOT="$RESOLVED"
     PORT=$(instance_port "$RESOLVED")
     BASE_URL="http://localhost:$PORT"
+    PROJECT_LABEL=$(grep '^COMPOSE_PROJECT_NAME=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    [ -n "$PROJECT_LABEL" ] || PROJECT_LABEL=$(basename "$PROJECT_ROOT")
 }
 
 usage() {
     cat <<EOF
 Usage:
-  plym list                            Show every blog on this machine (active marked with *).
+  plym list                            Show every blog on this machine (active one in green).
   plym use <name|dir>                  Set the active blog for commands run outside a blog dir.
   plym template install <name> [ref]   Download a template into plym/templates/ and switch to it.
                                        Default ref: main. Refs can be a branch, tag, or commit SHA.
@@ -139,17 +170,39 @@ refresh_all_posts() {
     ids=$(curl -fsS "$BASE_URL/api/posts?include_drafts=true&page_size=200" \
             -H "Authorization: Bearer $TOKEN" \
             | python3 -c "import sys,json;print(' '.join(str(p['id']) for p in json.load(sys.stdin)['items']))")
-    if [ -z "$ids" ]; then
-        printf "No posts to refresh.\n"
-        return
-    fi
-    count=0
+    [ -n "$ids" ] || return 0
     for id in $ids; do
         curl -fsS -o /dev/null -X POST "$BASE_URL/api/posts/$id/refresh" \
              -H "Authorization: Bearer $TOKEN"
-        count=$((count + 1))
     done
-    printf "Refreshed %s post(s).\n" "$count"
+}
+
+restart_api() {
+    docker compose restart api >/dev/null
+    wait_for_health
+}
+
+install_template() {
+    name="$1"; ref="$2"
+    target="plym/templates/$name"
+    tmp=$(mktemp -d)
+    url="https://codeload.github.com/$REPO_OWNER/$REPO_NAME/tar.gz/$ref"
+    if ! curl -fsSL "$url" \
+        | tar -xz -C "$tmp" --strip-components=1 "$REPO_NAME-$ref/$name" 2>/dev/null \
+        || [ ! -d "$tmp/$name" ]; then
+        rm -rf "$tmp"
+        echo "Template '$name' not found in $REPO_OWNER/$REPO_NAME@$ref" >&2
+        return 1
+    fi
+    rm -rf "$target"
+    mv "$tmp/$name" "$target"
+    rm -rf "$tmp"
+    if grep -q '^template:' config.yaml; then
+        sed -i.bak "s|^template: .*|template: $name|" config.yaml
+        rm -f config.yaml.bak
+    else
+        printf "template: %s\n" "$name" >> config.yaml
+    fi
 }
 
 cmd_list() {
@@ -157,15 +210,15 @@ cmd_list() {
     [ -f "$ACTIVE_FILE" ] && active=$(cat "$ACTIVE_FILE")
     rows=$(list_instances)
     if [ -z "$rows" ]; then
-        printf "No plym blogs found.\n"
+        note "No plym blogs found."
         return
     fi
-    printf "%-16s %-6s %-9s %s\n" "NAME" "PORT" "STATUS" "DIR"
+    printf "%s%-16s %-6s %-9s %s%s\n" "$DIM" "NAME" "PORT" "STATUS" "DIR" "$RESET"
     printf '%s\n' "$rows" | while IFS='	' read -r dir project state; do
         [ -n "$dir" ] || continue
-        mark=""
-        [ "$dir" = "$active" ] && mark=" *"
-        printf "%-16s %-6s %-9s %s%s\n" "$project" "$(instance_port "$dir")" "$state" "$dir" "$mark"
+        field=$(printf '%-16s' "$project")
+        [ "$dir" = "$active" ] && field="${GREEN}${field}${RESET}"
+        printf "%s %-6s %-9s %s\n" "$field" "$(instance_port "$dir")" "$state" "$dir"
     done
 }
 
@@ -188,7 +241,9 @@ cmd_use() {
     [ -n "$match" ] || fail "No plym blog matching '$target'. See 'plym list'."
     mkdir -p "$PLYM_HOME"
     printf '%s\n' "$match" > "$ACTIVE_FILE"
-    printf "active blog → %s (%s, :%s)\n" "$(basename "$match")" "$match" "$(instance_port "$match")"
+    printf "%s→%s %s%s%s now active %s(:%s)%s\n" \
+        "$ACCENT" "$RESET" "$GREEN" "$(basename "$match")" "$RESET" \
+        "$DIM" "$(instance_port "$match")" "$RESET"
 }
 
 cmd_template_install() {
@@ -197,47 +252,19 @@ cmd_template_install() {
     ref="${2:-main}"
     [ -n "$name" ] || { usage; exit 1; }
 
-    target="plym/templates/$name"
-
-    printf "Downloading %s from %s/%s@%s ...\n" "$name" "$REPO_OWNER" "$REPO_NAME" "$ref"
-    tmp=$(mktemp -d)
-    trap 'rm -rf "$tmp"' EXIT
-
-    url="https://codeload.github.com/$REPO_OWNER/$REPO_NAME/tar.gz/$ref"
-    if ! curl -fsSL "$url" \
-        | tar -xz -C "$tmp" --strip-components=1 "$REPO_NAME-$ref/$name" 2>/dev/null; then
-        fail "Template '$name' not found in $REPO_OWNER/$REPO_NAME@$ref"
-    fi
-    [ -d "$tmp/$name" ] || fail "Template '$name' not found in $REPO_OWNER/$REPO_NAME@$ref"
-
-    rm -rf "$target"
-    mv "$tmp/$name" "$target"
-    printf "Installed to %s\n" "$target"
-
-    if grep -q '^template:' config.yaml; then
-        sed -i.bak "s|^template: .*|template: $name|" config.yaml
-        rm -f config.yaml.bak
-    else
-        printf "template: %s\n" "$name" >> config.yaml
-    fi
-    printf "config.yaml now uses template: %s\n" "$name"
-
-    printf "Restarting api ...\n"
-    docker compose restart api >/dev/null
-    wait_for_health
-    printf "API ready.\n"
-
-    refresh_all_posts
-    printf "Done. Template '%s' is live.\n" "$name"
+    note "Installing template '$name' into $PROJECT_LABEL"
+    spin "Downloading $name from $REPO_OWNER/$REPO_NAME@$ref" install_template "$name" "$ref"
+    spin "Restarting api" restart_api
+    spin "Re-rendering published posts" refresh_all_posts
+    say "Template '$name' is live."
 }
 
 cmd_rebuild() {
     enter_project
-    printf "Restarting api ...\n"
-    docker compose restart api >/dev/null
-    wait_for_health
-    refresh_all_posts
-    printf "Rebuild complete.\n"
+    note "Rebuilding $PROJECT_LABEL (:$PORT)"
+    spin "Restarting api" restart_api
+    spin "Re-rendering published posts" refresh_all_posts
+    say "Rebuild complete."
 }
 
 OPT_PROJECT=""
