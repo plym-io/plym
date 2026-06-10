@@ -1,7 +1,7 @@
 #!/bin/sh
 # plym one-line installer
 #   curl -fsSL https://raw.githubusercontent.com/plym-io/plym/main/install.sh | sh
-#   curl -fsSL https://raw.githubusercontent.com/plym-io/plym/main/install.sh | sh -s "My Blog"
+#   curl -fsSL https://raw.githubusercontent.com/plym-io/plym/main/install.sh | sh -s "My Blog" "me@example.com"
 
 set -e
 
@@ -14,17 +14,65 @@ ACCENT=$(printf '\033[38;5;208m')
 RESET=$(printf '\033[0m')
 
 say()  { printf "%s→%s %s\n" "$ACCENT" "$RESET" "$1"; }
+note() { printf "%s%s%s\n" "$DIM" "$1" "$RESET"; }
 fail() { printf "%s✗%s %s\n" "$ACCENT" "$RESET" "$1" >&2; exit 1; }
+
+# Animate while a command runs, swallowing its output. Only the plym-level
+# message is shown; the captured log is printed only if the command fails.
+[ -e /dev/tty ] && SPIN_OUT=/dev/tty || SPIN_OUT=/dev/stdout
+spin() {
+    msg="$1"; shift
+    log=$(mktemp)
+    "$@" >"$log" 2>&1 &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        for frame in ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏; do
+            kill -0 "$pid" 2>/dev/null || break
+            printf "\r%s%s%s %s " "$ACCENT" "$frame" "$RESET" "$msg" > "$SPIN_OUT"
+            sleep 0.08
+        done
+    done
+    rc=0; wait "$pid" || rc=$?
+    if [ "$rc" -eq 0 ]; then
+        printf "\r%s✓%s %s\n" "$ACCENT" "$RESET" "$msg" > "$SPIN_OUT"
+    else
+        printf "\r%s✗%s %s\n" "$ACCENT" "$RESET" "$msg" > "$SPIN_OUT"
+        cat "$log" >&2
+    fi
+    rm -f "$log"
+    return "$rc"
+}
+
+# True if something is already listening on TCP port $1. Used to climb to a free
+# host port so several blogs coexist. Best-effort: if no probe tool is present we
+# assume free and let Docker surface a real bind error.
+port_in_use() {
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+    elif command -v nc >/dev/null 2>&1; then
+        nc -z 127.0.0.1 "$1" >/dev/null 2>&1
+    else
+        return 1
+    fi
+}
 
 # Blog name — arg or interactive prompt
 NAME="$1"
-if [ -z "$NAME" ]; then
-    if [ -e /dev/tty ]; then
-        printf "%sName your blog%s " "$BOLD" "$RESET" > /dev/tty
-        read NAME < /dev/tty || true
-    fi
+if [ -z "$NAME" ] && [ -e /dev/tty ]; then
+    printf "%sName your blog%s " "$BOLD" "$RESET" > /dev/tty
+    read NAME < /dev/tty || true
 fi
 [ -z "$NAME" ] && fail "Blog name is required. Try: curl … | sh -s \"My Blog\""
+
+# Superuser email — arg or interactive prompt; root@plym.local is the default
+ADMIN_EMAIL="$2"
+if [ -z "$ADMIN_EMAIL" ] && [ -e /dev/tty ]; then
+    printf "%sAdmin email%s %s(root@plym.local)%s " "$BOLD" "$RESET" "$DIM" "$RESET" > /dev/tty
+    read ADMIN_EMAIL < /dev/tty || true
+fi
+[ -z "$ADMIN_EMAIL" ] && ADMIN_EMAIL="root@plym.local"
+
+note "Logo, colors and other settings live in config.yaml — change them anytime."
 
 # Prereqs
 for tool in docker git openssl curl; do
@@ -47,16 +95,25 @@ fi
 
 [ -e "$INSTALL_DIR" ] && fail "Directory '$INSTALL_DIR' already exists. Remove it or set PLYM_DIR=somewhere-else"
 
-say "Fetching plym"
-git clone --quiet --depth 1 "$REPO_URL" "$INSTALL_DIR"
+spin "Fetching plym" git clone --quiet --depth 1 "$REPO_URL" "$INSTALL_DIR" \
+    || fail "Could not clone $REPO_URL (see output above)."
 cd "$INSTALL_DIR"
 
-say "Generating credentials"
+# Default to 9173 and climb until free, so a second blog on the same machine
+# gets 9174, 9175, … with no extra flags. An exported PLYM_PORT sets the start.
+PORT="${PLYM_PORT:-9173}"
+while port_in_use "$PORT"; do
+    PORT=$((PORT + 1))
+done
+BASE_URL="http://localhost:$PORT"
+
 JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')
 ADMIN_PASSWORD=$(openssl rand -hex 12 | tr -d '\n')
 
 cp .env.example .env
+sed -i.bak "s|^PLYM_PORT=.*|PLYM_PORT=$PORT|" .env
 sed -i.bak "s|^PLYM_JWT_SECRET=.*|PLYM_JWT_SECRET=$JWT_SECRET|" .env
+sed -i.bak "s|^PLYM_SUPERUSER_EMAIL=.*|PLYM_SUPERUSER_EMAIL=$ADMIN_EMAIL|" .env
 sed -i.bak "s|^PLYM_SUPERUSER_PASSWORD=.*|PLYM_SUPERUSER_PASSWORD=$ADMIN_PASSWORD|" .env
 rm -f .env.bak
 
@@ -64,12 +121,8 @@ cp config.yaml.example config.yaml
 sed -i.bak "s|^name:.*|name: $NAME|" config.yaml
 rm -f config.yaml.bak
 
-say "Building images (first run takes ~1 minute)"
-# Output is not suppressed: the user needs to see build progress, and any
-# failure (network, missing release asset, disk full) must be visible.
-if ! docker compose up -d --build; then
-    printf "\n"
-    fail "docker compose failed. The actual error is in the output above.
+spin "Building images — first run takes about a minute" docker compose up -d --build \
+    || fail "docker compose failed (the actual error is above).
 
   Common causes:
     - PLYM_ADMIN_VERSION in .env points at a plym-admin tag that has no
@@ -79,46 +132,49 @@ if ! docker compose up -d --build; then
 
   To retry from this directory:
     cd $(pwd) && docker compose up -d --build"
-fi
 
-say "Waiting for app to come up"
-tries=0
-until curl -fsS http://localhost:8000/health >/dev/null 2>&1; do
-    tries=$((tries + 1))
-    if [ "$tries" -gt 120 ]; then
-        printf "\n"
-        docker compose logs api 2>&1 | tail -20
-        fail "App did not come up within 120 seconds"
-    fi
-    sleep 1
-done
+wait_for_app() {
+    tries=0
+    until curl -fsS $BASE_URL/health >/dev/null 2>&1; do
+        tries=$((tries + 1))
+        [ "$tries" -gt 120 ] && { docker compose logs api 2>&1 | tail -20; return 1; }
+        sleep 1
+    done
+}
+spin "Starting plym" wait_for_app \
+    || fail "App did not come up within 120 seconds (last log lines above)."
 
-# Seed a welcome post so / isn't empty
-say "Creating welcome post"
-TOKEN=$(curl -fsS -X POST http://localhost:8000/api/auth/login \
-    -H 'Content-Type: application/json' \
-    -d "{\"email\":\"root@plym.local\",\"password\":\"$ADMIN_PASSWORD\"}" \
-    | grep -o '"access_token":"[^"]*"' | sed 's/^"access_token":"//;s/"$//')
+# Seed a welcome post so / isn't empty. A login failure here almost always
+# means a stale Docker volume (plym_db) is holding an old admin password —
+# run 'docker compose down -v' before reinstalling.
+seed_welcome() {
+    token=$(curl -fsS -X POST $BASE_URL/api/auth/login \
+        -H 'Content-Type: application/json' \
+        -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}" \
+        | grep -o '"access_token":"[^"]*"' | sed 's/^"access_token":"//;s/"$//')
+    [ -z "$token" ] && { echo "Login failed for $ADMIN_EMAIL. A leftover database volume may still hold an old password — run 'docker compose down -v' and reinstall." >&2; return 1; }
 
-WELCOME_CONTENT="# Welcome\n\n**$NAME** is live. This is your first post — open \`/docs\` to edit it or create another."
+    content="# Welcome\n\n**$NAME** is live. This is your first post — open \`/docs\` to edit it or create another."
+    post_id=$(curl -fsS -X POST $BASE_URL/api/posts \
+        -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+        -d "{\"title\":\"Hello from $NAME\",\"slug\":\"hello\",\"content\":\"$content\",\"excerpt\":\"Your blog is up and running.\"}" \
+        | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
+    [ -z "$post_id" ] && { echo "Could not create the welcome post." >&2; return 1; }
 
-POST_ID=$(curl -fsS -X POST http://localhost:8000/api/posts \
-    -H "Authorization: Bearer $TOKEN" \
-    -H 'Content-Type: application/json' \
-    -d "{\"title\":\"Hello from $NAME\",\"slug\":\"hello\",\"content\":\"$WELCOME_CONTENT\",\"excerpt\":\"Your blog is up and running.\"}" \
-    | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
-
-curl -fsS -X PATCH "http://localhost:8000/api/posts/$POST_ID" \
-    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-    -d '{"status":"published"}' >/dev/null
-curl -fsS -X POST "http://localhost:8000/api/posts/$POST_ID/refresh" \
-    -H "Authorization: Bearer $TOKEN" >/dev/null
+    curl -fsS -X PATCH "$BASE_URL/api/posts/$post_id" \
+        -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+        -d '{"status":"published"}' >/dev/null
+    curl -fsS -X POST "$BASE_URL/api/posts/$post_id/refresh" \
+        -H "Authorization: Bearer $token" >/dev/null
+}
+spin "Publishing your first post" seed_welcome \
+    || fail "Could not seed the welcome post (see message above)."
 
 # Save credentials
 cat > .plym-credentials <<EOF
 plym admin credentials for "$NAME"
 ─────────────────────────────────
-Email:    root@plym.local
+Email:    $ADMIN_EMAIL
 Password: $ADMIN_PASSWORD
 EOF
 chmod 600 .plym-credentials
@@ -142,6 +198,10 @@ else
     esac
 fi
 
+PLYM_HOME="${PLYM_CONFIG_HOME:-$HOME/.config/plym}"
+mkdir -p "$PLYM_HOME"
+pwd > "$PLYM_HOME/active"
+
 # Success banner
 cat <<EOF
 
@@ -149,18 +209,20 @@ cat <<EOF
 
   ${BOLD}$NAME${RESET}
   ${DIM}────────────────────────────────────────${RESET}
-  Blog       ${ACCENT}http://localhost:8000${RESET}
-  API docs   ${ACCENT}http://localhost:8000/docs${RESET}
-  Hello post ${ACCENT}http://localhost:8000/blog/hello${RESET}
+  Blog       ${ACCENT}$BASE_URL${RESET}
+  API docs   ${ACCENT}$BASE_URL/docs${RESET}
+  Hello post ${ACCENT}$BASE_URL/blog/hello${RESET}
 
   Sign in:
-    Email      ${BOLD}root@plym.local${RESET}
+    Email      ${BOLD}$ADMIN_EMAIL${RESET}
     Password   ${BOLD}$ADMIN_PASSWORD${RESET}
 
   ${DIM}Credentials saved to $(pwd)/.plym-credentials${RESET}
 
-  ${BOLD}plym${RESET} CLI installed to ${ACCENT}$CLI_INSTALLED_AT${RESET}
-${PATH_NOTE}    ${BOLD}plym template install <name>${RESET} — fetch a template from plym-io/plym-templates
+  ${BOLD}plym${RESET} CLI installed to ${ACCENT}$CLI_INSTALLED_AT${RESET} ${DIM}(this blog is now active)${RESET}
+${PATH_NOTE}    ${BOLD}plym list${RESET}                      — show every blog on this machine
+    ${BOLD}plym use <name>${RESET}                — switch which blog plym targets
+    ${BOLD}plym template install <name>${RESET}   — fetch a template from plym-io/plym-templates
     ${BOLD}plym rebuild${RESET}                   — restart the api and re-render every published post
 
   ${DIM}docker compose logs -f api  •  docker compose down${RESET}

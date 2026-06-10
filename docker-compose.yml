@@ -7,8 +7,6 @@ services:
       POSTGRES_PASSWORD: ${PLYM_DB_PASSWORD:-plym}
     volumes:
       - plym_db:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${PLYM_DB_USER:-plym}"]
       interval: 5s
@@ -22,11 +20,13 @@ services:
       args:
         PLYM_ADMIN_VERSION: ${PLYM_ADMIN_VERSION:-}
     env_file: .env
+    labels:
+      io.plym.instance: "true"
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "${PLYM_PORT:-9173}:8000"
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./plym:/app/plym:ro

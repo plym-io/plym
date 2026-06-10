@@ -1,7 +1,10 @@
 #!/bin/sh
 # plym CLI
+#   plym list
+#   plym use <name|dir>
 #   plym template install <name> [ref]
 #   plym rebuild
+# Global: -C <dir> / --project <dir> / PLYM_DIR target a specific blog.
 
 set -e
 
@@ -9,8 +12,15 @@ REPO_OWNER="${PLYM_TEMPLATE_REPO_OWNER:-plym-io}"
 REPO_NAME="${PLYM_TEMPLATE_REPO_NAME:-plym-templates}"
 HEALTH_TIMEOUT_SECONDS="${PLYM_HEALTH_TIMEOUT_SECONDS:-60}"
 
-resolve_path() {
-    # readlink -f exists on Linux + recent macOS; fall back to python3 on older macOS
+PLYM_HOME="${PLYM_CONFIG_HOME:-$HOME/.config/plym}"
+ACTIVE_FILE="$PLYM_HOME/active"
+
+fail() {
+    printf "%s\n" "$1" >&2
+    exit "${2:-1}"
+}
+
+abspath() {
     if readlink -f "$1" >/dev/null 2>&1; then
         readlink -f "$1"
     else
@@ -18,16 +28,76 @@ resolve_path() {
     fi
 }
 
-SCRIPT_PATH=$(resolve_path "$0")
-PROJECT_ROOT=$(dirname "$(dirname "$SCRIPT_PATH")")
-cd "$PROJECT_ROOT"
+is_plym_dir() {
+    [ -f "$1/docker-compose.yml" ] && grep -q 'io\.plym\.instance' "$1/docker-compose.yml" 2>/dev/null
+}
+
+instance_port() {
+    p=$(grep '^PLYM_PORT=' "$1/.env" 2>/dev/null | cut -d= -f2- | head -1)
+    printf '%s' "${p:-9173}"
+}
+
+list_instances() {
+    docker ps -a --filter label=io.plym.instance \
+        --format '{{.Label "com.docker.compose.project.working_dir"}}	{{.Label "com.docker.compose.project"}}	{{.State}}' \
+        2>/dev/null | awk 'NF' | sort -u
+}
+
+find_project_upward() {
+    d=$(pwd)
+    while [ "$d" != "/" ]; do
+        if is_plym_dir "$d"; then printf '%s\n' "$d"; return 0; fi
+        d=$(dirname "$d")
+    done
+    return 1
+}
+
+resolve_project() {
+    RESOLVED=""
+    if [ -n "$OPT_PROJECT" ]; then
+        is_plym_dir "$OPT_PROJECT" || fail "Not a plym project: $OPT_PROJECT"
+        RESOLVED=$(abspath "$OPT_PROJECT"); return 0
+    fi
+    if [ -n "$PLYM_DIR" ]; then
+        is_plym_dir "$PLYM_DIR" || fail "PLYM_DIR is not a plym project: $PLYM_DIR"
+        RESOLVED=$(abspath "$PLYM_DIR"); return 0
+    fi
+    if up=$(find_project_upward); then RESOLVED="$up"; return 0; fi
+    if [ -f "$ACTIVE_FILE" ]; then
+        a=$(cat "$ACTIVE_FILE")
+        if is_plym_dir "$a"; then RESOLVED="$a"; return 0; fi
+    fi
+    dirs=$(list_instances | cut -f1 | awk 'NF')
+    count=$(printf '%s\n' "$dirs" | awk 'NF' | wc -l | tr -d ' ')
+    if [ "$count" = "1" ]; then RESOLVED="$dirs"; return 0; fi
+    [ "$count" = "0" ] && fail "No plym instance found. Run from inside a blog directory, set PLYM_DIR, or pass -C <dir>."
+    fail "Multiple blogs and none active. Pick one with 'plym use <name>' (or pass -C <dir>):
+
+$(cmd_list)"
+}
+
+enter_project() {
+    resolve_project
+    cd "$RESOLVED"
+    PROJECT_ROOT="$RESOLVED"
+    PORT=$(instance_port "$RESOLVED")
+    BASE_URL="http://localhost:$PORT"
+}
 
 usage() {
     cat <<EOF
 Usage:
+  plym list                            Show every blog on this machine (active marked with *).
+  plym use <name|dir>                  Set the active blog for commands run outside a blog dir.
   plym template install <name> [ref]   Download a template into plym/templates/ and switch to it.
                                        Default ref: main. Refs can be a branch, tag, or commit SHA.
   plym rebuild                         Restart the api and re-render every published post.
+
+Target selection (template/rebuild):
+  -C <dir>, --project <dir>            Operate on the blog in <dir>.
+  PLYM_DIR=<dir>                       Same, via environment.
+  Otherwise: the current blog dir if you are inside one, else the active blog,
+  else the sole blog if there is only one.
 
 Environment overrides:
   PLYM_TEMPLATE_REPO_OWNER (default: plym-io)
@@ -36,14 +106,9 @@ Environment overrides:
 EOF
 }
 
-fail() {
-    printf "%s\n" "$1" >&2
-    exit "${2:-1}"
-}
-
 wait_for_health() {
     tries=0
-    until curl -fsS http://localhost:8000/health >/dev/null 2>&1; do
+    until curl -fsS $BASE_URL/health >/dev/null 2>&1; do
         tries=$((tries + 1))
         if [ "$tries" -gt "$HEALTH_TIMEOUT_SECONDS" ]; then
             fail "API did not come up within ${HEALTH_TIMEOUT_SECONDS}s"
@@ -62,7 +127,7 @@ load_creds() {
 
 login() {
     load_creds
-    TOKEN=$(curl -fsS -X POST http://localhost:8000/api/auth/login \
+    TOKEN=$(curl -fsS -X POST $BASE_URL/api/auth/login \
         -H 'Content-Type: application/json' \
         -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" \
         | grep -o '"access_token":"[^"]*"' | sed 's/^"access_token":"//;s/"$//')
@@ -71,7 +136,7 @@ login() {
 
 refresh_all_posts() {
     login
-    ids=$(curl -fsS "http://localhost:8000/api/posts?include_drafts=true&page_size=200" \
+    ids=$(curl -fsS "$BASE_URL/api/posts?include_drafts=true&page_size=200" \
             -H "Authorization: Bearer $TOKEN" \
             | python3 -c "import sys,json;print(' '.join(str(p['id']) for p in json.load(sys.stdin)['items']))")
     if [ -z "$ids" ]; then
@@ -80,14 +145,54 @@ refresh_all_posts() {
     fi
     count=0
     for id in $ids; do
-        curl -fsS -o /dev/null -X POST "http://localhost:8000/api/posts/$id/refresh" \
+        curl -fsS -o /dev/null -X POST "$BASE_URL/api/posts/$id/refresh" \
              -H "Authorization: Bearer $TOKEN"
         count=$((count + 1))
     done
     printf "Refreshed %s post(s).\n" "$count"
 }
 
+cmd_list() {
+    active=""
+    [ -f "$ACTIVE_FILE" ] && active=$(cat "$ACTIVE_FILE")
+    rows=$(list_instances)
+    if [ -z "$rows" ]; then
+        printf "No plym blogs found.\n"
+        return
+    fi
+    printf "%-16s %-6s %-9s %s\n" "NAME" "PORT" "STATUS" "DIR"
+    printf '%s\n' "$rows" | while IFS='	' read -r dir project state; do
+        [ -n "$dir" ] || continue
+        mark=""
+        [ "$dir" = "$active" ] && mark=" *"
+        printf "%-16s %-6s %-9s %s%s\n" "$project" "$(instance_port "$dir")" "$state" "$dir" "$mark"
+    done
+}
+
+cmd_use() {
+    target="$1"
+    [ -n "$target" ] || { usage; exit 1; }
+    match=""
+    rows=$(list_instances)
+    if [ -n "$rows" ]; then
+        match=$(printf '%s\n' "$rows" | while IFS='	' read -r dir project state; do
+            [ -n "$dir" ] || continue
+            if [ "$project" = "$target" ] || [ "$dir" = "$target" ] || [ "$(basename "$dir")" = "$target" ]; then
+                printf '%s\n' "$dir"; break
+            fi
+        done)
+    fi
+    if [ -z "$match" ] && is_plym_dir "$target"; then
+        match=$(abspath "$target")
+    fi
+    [ -n "$match" ] || fail "No plym blog matching '$target'. See 'plym list'."
+    mkdir -p "$PLYM_HOME"
+    printf '%s\n' "$match" > "$ACTIVE_FILE"
+    printf "active blog → %s (%s, :%s)\n" "$(basename "$match")" "$match" "$(instance_port "$match")"
+}
+
 cmd_template_install() {
+    enter_project
     name="$1"
     ref="${2:-main}"
     [ -n "$name" ] || { usage; exit 1; }
@@ -109,7 +214,6 @@ cmd_template_install() {
     mv "$tmp/$name" "$target"
     printf "Installed to %s\n" "$target"
 
-    # Switch config.yaml's template field
     if grep -q '^template:' config.yaml; then
         sed -i.bak "s|^template: .*|template: $name|" config.yaml
         rm -f config.yaml.bak
@@ -128,6 +232,7 @@ cmd_template_install() {
 }
 
 cmd_rebuild() {
+    enter_project
     printf "Restarting api ...\n"
     docker compose restart api >/dev/null
     wait_for_health
@@ -135,8 +240,20 @@ cmd_rebuild() {
     printf "Rebuild complete.\n"
 }
 
-# --- dispatch ---
+OPT_PROJECT=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -C|--project)
+            [ -n "$2" ] || fail "$1 requires a directory"
+            OPT_PROJECT="$2"; shift 2 ;;
+        --) shift; break ;;
+        *) break ;;
+    esac
+done
+
 case "${1:-}" in
+    list) cmd_list ;;
+    use) shift; cmd_use "$@" ;;
     template)
         case "${2:-}" in
             install) shift 2; cmd_template_install "$@" ;;
