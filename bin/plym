@@ -365,6 +365,10 @@ reload_nginx() {
     $SUDO systemctl reload nginx 2>/dev/null || $SUDO nginx -s reload
 }
 
+certbot_has_nginx_plugin() {
+    $SUDO certbot plugins 2>/dev/null | grep -q '\* nginx'
+}
+
 run_certbot() {
     EMAIL=$(grep '^PLYM_SUPERUSER_EMAIL=' .env 2>/dev/null | cut -d= -f2- | head -1)
     case "$EMAIL" in
@@ -383,7 +387,11 @@ setup_nginx() {
         $SUDO systemctl enable --now nginx >/dev/null 2>&1 || true
     fi
     dns_preflight
-    if nginx_has_domain; then
+    OUR_CONF=""
+    for c in "/etc/nginx/sites-available/plym-$HOST.conf" "/etc/nginx/conf.d/plym-$HOST.conf"; do
+        [ -f "$c" ] && OUR_CONF="$c"
+    done
+    if [ -z "$OUR_CONF" ] && nginx_has_domain; then
         deleg_dir="/etc/nginx/plym/$HOST"
         deleg_file="$deleg_dir/$PROJECT_LABEL.conf"
         $SUDO mkdir -p "$deleg_dir"
@@ -410,14 +418,20 @@ setup_nginx() {
     spin "Reloading nginx" reload_nginx
     if ! command -v certbot >/dev/null 2>&1; then
         spin "Installing certbot" pkg_install certbot python3-certbot-nginx \
+            || spin "Installing certbot" pkg_install certbot certbot-nginx \
             || spin "Installing certbot" pkg_install certbot \
             || true
     fi
-    if command -v certbot >/dev/null 2>&1; then
+    if command -v certbot >/dev/null 2>&1 && ! certbot_has_nginx_plugin; then
+        spin "Installing the certbot nginx plugin" pkg_install python3-certbot-nginx \
+            || spin "Installing the certbot nginx plugin" pkg_install certbot-nginx \
+            || true
+    fi
+    if command -v certbot >/dev/null 2>&1 && certbot_has_nginx_plugin; then
         spin "Obtaining TLS certificate for $HOST" run_certbot \
             || note "certbot failed — $HOST works over HTTP. Fix DNS/firewall and run: $SUDO certbot --nginx -d $HOST"
     else
-        note "certbot is not installed — $HOST works over HTTP. For HTTPS run: $SUDO certbot --nginx -d $HOST"
+        note "certbot's nginx plugin is missing — $HOST works over HTTP. For HTTPS install python3-certbot-nginx, then run: $SUDO certbot --nginx -d $HOST"
     fi
 }
 
