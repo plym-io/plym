@@ -172,10 +172,25 @@ seed_welcome() {
         | grep -o '"access_token":"[^"]*"' | sed 's/^"access_token":"//;s/"$//')
     [ -z "$token" ] && { echo "Login failed for $ADMIN_EMAIL. A leftover database volume may still hold an old password — run 'docker compose down -v' and reinstall." >&2; return 1; }
 
-    content="# Welcome\n\n**$NAME** is live. This is your first post — open \`/docs\` to edit it or create another."
+    excerpt="plym is now live on your server. Check out this article to help you complete your setup."
+    # Build the JSON body with the api container's python (always present) so the
+    # markdown's quotes, backticks and newlines are escaped correctly. The body comes
+    # from docs/HELLO.md, piped on stdin so it never consumes the installer's own
+    # stdin (the curl|sh pipe); name and excerpt are passed as arguments.
+    payload=$(
+        { [ -f docs/HELLO.md ] && cat docs/HELLO.md \
+            || printf '# Welcome\n\n**%s** is live. Open the admin dashboard to edit this post.\n' "$NAME"; } \
+        | docker compose exec -T api python3 -c '
+import json, sys
+name, excerpt = sys.argv[1], sys.argv[2]
+print(json.dumps({"title": f"Hello from {name}", "slug": "hello", "content": sys.stdin.read(), "excerpt": excerpt}))
+' "$NAME" "$excerpt"
+    )
+    [ -z "$payload" ] && { echo "Could not build the welcome post (is the api container running?)." >&2; return 1; }
+
     post_id=$(curl -fsS -X POST $BASE_URL/api/posts \
         -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
-        -d "{\"title\":\"Hello from $NAME\",\"slug\":\"hello\",\"content\":\"$content\",\"excerpt\":\"Your blog is up and running.\"}" \
+        -d "$payload" \
         | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
     [ -z "$post_id" ] && { echo "Could not create the welcome post." >&2; return 1; }
 
