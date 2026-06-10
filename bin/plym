@@ -3,6 +3,7 @@
 #   plym list
 #   plym use <name|dir>
 #   plym template install <name> [ref] [--update]
+#   plym update
 #   plym reload
 #   plym rebuild
 # Global: -C <dir> / --project <dir> / PLYM_DIR target a specific blog.
@@ -130,6 +131,8 @@ Usage:
                                        if present, else downloads it. Pass --update to force a fresh
                                        download. Default ref: main. Refs are a branch, tag, or SHA.
   plym admin update                    Refetch the admin app release and rebuild the api image.
+  plym update                          Pull the latest plym, rebuild (api deps + admin), reload caddy,
+                                       run migrations, and re-render. Updates the whole stack.
   plym reload                          Restart the api to apply config.yaml. No re-render — use for
                                        runtime-only changes (http_cache, pagination, robots, media).
   plym rebuild                         Restart the api and re-render every published post. Use when a
@@ -742,7 +745,7 @@ cmd_rebuild() {
 
 rebuild_with_fresh_admin() {
     PLYM_ADMIN_BUST=$(date +%s) docker compose build api
-    docker compose up -d api
+    docker compose up -d
     wait_for_health
 }
 
@@ -752,6 +755,28 @@ cmd_admin_update() {
     note "Refetching the admin app (${version:-no PLYM_ADMIN_VERSION set}) for $PROJECT_LABEL"
     spin "Rebuilding api with a fresh admin bundle" rebuild_with_fresh_admin
     say "Admin updated."
+}
+
+cmd_update() {
+    enter_project
+    [ -d .git ] || fail "Not a git checkout — this blog wasn't installed via the plym installer, so there's nothing to pull. Update it the way you deployed it."
+    note "Updating $PROJECT_LABEL (:$PORT)"
+    before=$(git rev-parse HEAD)
+    spin "Pulling latest plym" git pull --ff-only
+    after=$(git rev-parse HEAD)
+    # Always cache-bust the build: the admin (a separate repo, pinned by version)
+    # ships fresh dist.tar.gz on the same tag, so a no-op core pull can still hide a
+    # new admin bundle. Docker's layer cache keeps the heavy deps layer when nothing
+    # changed, so a no-change update only re-fetches the small admin asset.
+    spin "Rebuilding api with a fresh admin bundle" rebuild_with_fresh_admin
+    spin "Reloading caddy" docker compose restart caddy
+    spin "Re-rendering published posts" refresh_all_posts
+    warn_prefix_drift
+    if [ "$before" = "$after" ]; then
+        say "Already on the latest commit — admin bundle refreshed."
+    else
+        say "Updated $(printf '%s' "$before" | cut -c1-7) → $(printf '%s' "$after" | cut -c1-7)."
+    fi
 }
 
 OPT_PROJECT=""
@@ -794,6 +819,7 @@ case "${1:-}" in
         ;;
     reload) cmd_reload ;;
     rebuild) cmd_rebuild ;;
+    update) cmd_update ;;
     -h|--help|help|"") usage ;;
     *) usage; exit 1 ;;
 esac
