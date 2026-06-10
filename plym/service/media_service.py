@@ -28,7 +28,11 @@ class MediaService:
         self._posts = PostRepository(session)
 
     def _public_url(self, filename: str) -> str:
-        base = self._site.media.location.rstrip("/") if self._site.media.location else "/media"
+        base = (
+            self._site.media.location.rstrip("/")
+            if self._site.media.location
+            else f"{self._site.blog_prefix}/media"
+        )
         return f"{base}/{filename}"
 
     @instrumented("media.upload", audit=True)

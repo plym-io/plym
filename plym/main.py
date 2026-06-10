@@ -2,11 +2,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 
 from plym.api.auth_router import router as auth_router
-from plym.api.blog_router import index_router, posts_router as blog_posts_router
+from plym.api.blog_router import index_router, posts_router as blog_posts_router, serve_index
 from plym.api.config_router import router as config_router
 from plym.api.logs_router import router as logs_router
 from plym.api.media_router import router as media_router
@@ -89,6 +90,16 @@ app.include_router(config_router)
 app.include_router(logs_router)
 app.include_router(seo_router)
 app.include_router(index_router)
+
+_prefix = _site_config.blog_prefix
+if _prefix:
+    app.include_router(seo_router, prefix=_prefix, include_in_schema=False)
+    app.add_api_route(_prefix, serve_index, response_class=HTMLResponse, include_in_schema=False)
+    app.add_api_route(f"{_prefix}/", serve_index, response_class=HTMLResponse, include_in_schema=False)
+    app.mount(f"{_prefix}/webfonts", StaticFiles(directory=settings.fonts_dir), name="blog-webfonts")
+    if not _site_config.media.location:
+        app.mount(f"{_prefix}/media", StaticFiles(directory=settings.uploads_dir), name="blog-media")
+
 app.include_router(blog_posts_router, prefix=_site_config.blog_prefix)
 
 app.mount("/webfonts", StaticFiles(directory=settings.fonts_dir), name="webfonts")

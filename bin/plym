@@ -286,26 +286,11 @@ proxy_locations() {
     if [ -n "$URL_PATH" ]; then
         cat <<EOF
     location = $URL_PATH {
-        proxy_pass http://127.0.0.1:$PORT/;
+        proxy_pass http://127.0.0.1:$PORT;
 $PROXY_HEADERS
     }
 
     location $URL_PATH/ {
-        proxy_pass http://127.0.0.1:$PORT;
-$PROXY_HEADERS
-    }
-
-    location /webfonts/ {
-        proxy_pass http://127.0.0.1:$PORT;
-$PROXY_HEADERS
-    }
-
-    location /media/ {
-        proxy_pass http://127.0.0.1:$PORT;
-$PROXY_HEADERS
-    }
-
-    location /static/ {
         proxy_pass http://127.0.0.1:$PORT;
 $PROXY_HEADERS
     }
@@ -442,23 +427,10 @@ $HOST {
 	redir / $URL_PATH 302
 
 	handle $URL_PATH {
-		rewrite * /
 		reverse_proxy 127.0.0.1:$PORT
 	}
 
 	handle $URL_PATH/* {
-		reverse_proxy 127.0.0.1:$PORT
-	}
-
-	handle /webfonts/* {
-		reverse_proxy 127.0.0.1:$PORT
-	}
-
-	handle /media/* {
-		reverse_proxy 127.0.0.1:$PORT
-	}
-
-	handle /static/* {
 		reverse_proxy 127.0.0.1:$PORT
 	}
 }
@@ -523,7 +495,7 @@ setup_caddy() {
 
 setup_traefik() {
     rule="Host(\`$HOST\`)"
-    [ -n "$URL_PATH" ] && rule="Host(\`$HOST\`) && (PathPrefix(\`$URL_PATH\`) || PathPrefix(\`/webfonts\`) || PathPrefix(\`/media\`) || PathPrefix(\`/static\`))"
+    [ -n "$URL_PATH" ] && rule="Host(\`$HOST\`) && PathPrefix(\`$URL_PATH\`)"
     cat > docker-compose.traefik.yml <<EOF
 services:
   caddy:

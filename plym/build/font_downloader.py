@@ -13,6 +13,7 @@ class WebFontDownloader:
     def __init__(self, site: SiteConfig) -> None:
         self._heading = site.fonts.heading
         self._body = site.fonts.body
+        self._prefix = site.blog_prefix
 
     def _url(self) -> str:
         return (
@@ -33,7 +34,7 @@ class WebFontDownloader:
                 target = settings.fonts_dir / filename
                 async with aiofiles.open(target, "wb") as f:
                     await f.write(font_bytes)
-                css = css.replace(url, f"/webfonts/{filename}")
+                css = css.replace(url, f"{self._prefix}/webfonts/{filename}")
 
         output = settings.static_dir / "fonts.css"
         async with aiofiles.open(output, "w", encoding="utf-8") as f:

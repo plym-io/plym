@@ -30,9 +30,10 @@ class AssetDownloader:
         self._site = site
 
     async def download(self) -> SiteAssets:
+        prefix = self._site.blog_prefix
         async with aiohttp.ClientSession(headers={"User-Agent": USER_AGENT}) as session:
-            favicon = await self._fetch(session, self._site.favicon, "favicon", "/favicon.ico")
-            logo = await self._fetch(session, self._site.logo, "logo", "/logo.webp")
+            favicon = await self._fetch(session, self._site.favicon, "favicon", f"{prefix}/favicon.ico")
+            logo = await self._fetch(session, self._site.logo, "logo", f"{prefix}/logo.webp")
         return SiteAssets(favicon=favicon, logo=logo)
 
     async def _fetch(
