@@ -56,6 +56,16 @@ port_in_use() {
     fi
 }
 
+project_exists() {
+    if [ -n "$(docker ps -a -q --filter "label=com.docker.compose.project=$1" 2>/dev/null)" ]; then
+        return 0
+    fi
+    if docker volume ls -q 2>/dev/null | grep -q "^$1_"; then
+        return 0
+    fi
+    return 1
+}
+
 # Blog name — arg or interactive prompt
 NAME="$1"
 if [ -z "$NAME" ] && [ -e /dev/tty ]; then
@@ -107,10 +117,18 @@ while port_in_use "$PORT"; do
 done
 BASE_URL="http://localhost:$PORT"
 
+SLUG=$(printf '%s' "$NAME" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-*//;s/-*$//')
+[ -n "$SLUG" ] || SLUG=blog
+PROJECT_NAME="plym-$SLUG"
+if project_exists "$PROJECT_NAME"; then
+    PROJECT_NAME="plym-$SLUG-$(openssl rand -hex 3)"
+fi
+
 JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')
 ADMIN_PASSWORD=$(openssl rand -hex 12 | tr -d '\n')
 
 cp .env.example .env
+printf 'COMPOSE_PROJECT_NAME=%s\n' "$PROJECT_NAME" >> .env
 sed -i.bak "s|^PLYM_PORT=.*|PLYM_PORT=$PORT|" .env
 sed -i.bak "s|^PLYM_JWT_SECRET=.*|PLYM_JWT_SECRET=$JWT_SECRET|" .env
 sed -i.bak "s|^PLYM_SUPERUSER_EMAIL=.*|PLYM_SUPERUSER_EMAIL=$ADMIN_EMAIL|" .env
