@@ -127,6 +127,7 @@ Usage:
   plym unset url                       Remove the reverse proxy config plym created.
   plym template install <name> [ref]   Download a template into plym/templates/ and switch to it.
                                        Default ref: main. Refs can be a branch, tag, or commit SHA.
+  plym admin update                    Refetch the admin app release and rebuild the api image.
   plym rebuild                         Restart the api and re-render every published post.
 
 Target selection (template/rebuild):
@@ -678,6 +679,20 @@ cmd_rebuild() {
     say "Rebuild complete."
 }
 
+rebuild_with_fresh_admin() {
+    PLYM_ADMIN_BUST=$(date +%s) docker compose build api
+    docker compose up -d api
+    wait_for_health
+}
+
+cmd_admin_update() {
+    enter_project
+    version=$(grep '^PLYM_ADMIN_VERSION=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    note "Refetching the admin app (${version:-no PLYM_ADMIN_VERSION set}) for $PROJECT_LABEL"
+    spin "Rebuilding api with a fresh admin bundle" rebuild_with_fresh_admin
+    say "Admin updated."
+}
+
 OPT_PROJECT=""
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -708,6 +723,12 @@ case "${1:-}" in
         case "${2:-}" in
             install) shift 2; cmd_template_install "$@" ;;
             *)       usage; exit 1 ;;
+        esac
+        ;;
+    admin)
+        case "${2:-}" in
+            update) shift 2; cmd_admin_update ;;
+            *)      usage; exit 1 ;;
         esac
         ;;
     rebuild) cmd_rebuild ;;

@@ -19,6 +19,7 @@ services:
       dockerfile: docker/Dockerfile.api
       args:
         PLYM_ADMIN_VERSION: ${PLYM_ADMIN_VERSION:-}
+        PLYM_ADMIN_BUST: ${PLYM_ADMIN_BUST:-}
     env_file: .env
     labels:
       io.plym.instance: "true"

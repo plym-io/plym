@@ -14,7 +14,9 @@ RUN uv pip install --system --no-cache .
 
 ARG PLYM_ADMIN_VERSION=
 ARG PLYM_ADMIN_URL=https://github.com/plym-io/plym-admin/releases/download
+ARG PLYM_ADMIN_BUST=
 RUN mkdir -p /app/admin && \
+    : "bust=${PLYM_ADMIN_BUST}" && \
     if [ -n "$PLYM_ADMIN_VERSION" ]; then \
       python3 -c "import urllib.request, tarfile, io; \
 url='${PLYM_ADMIN_URL}/${PLYM_ADMIN_VERSION}/dist.tar.gz'; \
