@@ -2,7 +2,7 @@ Welcome to **plym**. Your instance is successfully deployed and running.
 
 ## Command Line Interface (CLI)
 
-Plym includes a built-in CLI to streamline environment management and deployment.
+plym includes a built-in CLI to streamline environment management and deployment.
 
 While plym can run behind any reverse proxy, the CLI offers automated routing and provisioning for **Nginx** and **Caddy**. To configure your domain and reverse proxy, run:
 
