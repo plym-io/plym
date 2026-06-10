@@ -3,6 +3,7 @@
 #   plym list
 #   plym use <name|dir>
 #   plym template install <name> [ref] [--update]
+#   plym reload
 #   plym rebuild
 # Global: -C <dir> / --project <dir> / PLYM_DIR target a specific blog.
 
@@ -129,7 +130,10 @@ Usage:
                                        if present, else downloads it. Pass --update to force a fresh
                                        download. Default ref: main. Refs are a branch, tag, or SHA.
   plym admin update                    Refetch the admin app release and rebuild the api image.
-  plym rebuild                         Restart the api and re-render every published post.
+  plym reload                          Restart the api to apply config.yaml. No re-render — use for
+                                       runtime-only changes (http_cache, pagination, robots, media).
+  plym rebuild                         Restart the api and re-render every published post. Use when a
+                                       change affects rendered HTML (template, prism, reading, logo).
 
 Target selection (template/rebuild):
   -C <dir>, --project <dir>            Operate on the blog in <dir>.
@@ -187,6 +191,27 @@ refresh_all_posts() {
 restart_api() {
     docker compose restart api >/dev/null
     wait_for_health
+}
+
+normalize_prefix() {
+    p="$1"
+    while [ "${p%/}" != "$p" ]; do p="${p%/}"; done
+    case "$p" in ""|/*) ;; *) p="/$p" ;; esac
+    printf '%s' "$p"
+}
+
+# blog_prefix lives in two places — config.yaml (read by the api) and .env's
+# PLYM_BLOG_PREFIX (read by caddy). A hand-edit of config.yaml leaves caddy on the
+# old prefix, so reload/rebuild appear to do nothing. Detect that drift and steer
+# the user to `plym set url`, which updates both and re-renders the baked-in URLs.
+warn_prefix_drift() {
+    cfg=$(normalize_prefix "$(grep '^blog_prefix:' config.yaml 2>/dev/null | awk '{print $2}')")
+    cfg="${cfg:-/blog}"
+    env=$(normalize_prefix "$(grep '^PLYM_BLOG_PREFIX=' .env 2>/dev/null | cut -d= -f2- | head -1)")
+    env="${env:-/blog}"
+    [ "$cfg" = "$env" ] && return 0
+    note "blog_prefix drift: config.yaml says '$cfg' but caddy is serving '$env'."
+    note "Routing won't change until both match. Run: plym set url <your-url>$cfg"
 }
 
 template_exists_local() {
@@ -698,11 +723,20 @@ cmd_template_install() {
     say "Template '$name' is live."
 }
 
+cmd_reload() {
+    enter_project
+    note "Reloading $PROJECT_LABEL config (:$PORT)"
+    spin "Restarting api" restart_api
+    warn_prefix_drift
+    say "Config reloaded."
+}
+
 cmd_rebuild() {
     enter_project
     note "Rebuilding $PROJECT_LABEL (:$PORT)"
     spin "Restarting api" restart_api
     spin "Re-rendering published posts" refresh_all_posts
+    warn_prefix_drift
     say "Rebuild complete."
 }
 
@@ -758,6 +792,7 @@ case "${1:-}" in
             *)      usage; exit 1 ;;
         esac
         ;;
+    reload) cmd_reload ;;
     rebuild) cmd_rebuild ;;
     -h|--help|help|"") usage ;;
     *) usage; exit 1 ;;
