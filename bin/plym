@@ -580,6 +580,7 @@ cmd_set_url() {
     spin "Re-rendering with the new address" apply_site_settings
 
     printf "\n  %s%s%s now serves %s%s%s\n" "$GREEN" "$PUBLIC_URL" "$RESET" "$BOLD" "$PROJECT_LABEL" "$RESET"
+    note "  Admin: https://$HOST$BLOG_PREFIX/plym-admin"
     note "  Undo anytime with 'plym unset url'."
     printf "\n"
 }

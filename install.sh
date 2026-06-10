@@ -228,6 +228,7 @@ cat <<EOF
   ${BOLD}$NAME${RESET}
   ${DIM}────────────────────────────────────────${RESET}
   Blog       ${ACCENT}$BASE_URL${RESET}
+  Admin      ${ACCENT}$BASE_URL/blog/plym-admin${RESET}
   API docs   ${ACCENT}$BASE_URL/docs${RESET}
   Hello post ${ACCENT}$BASE_URL/blog/hello${RESET}
 

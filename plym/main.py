@@ -2,8 +2,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
 
 from plym.api.auth_router import router as auth_router
@@ -91,7 +92,31 @@ app.include_router(logs_router)
 app.include_router(seo_router)
 app.include_router(index_router)
 
+class AdminSPA(StaticFiles):
+    def __init__(self, directory: str, base_href: str) -> None:
+        super().__init__(directory=directory)
+        index = Path(directory) / "index.html"
+        self._index = index.read_text(encoding="utf-8").replace(
+            "<head>", f'<head><base href="{base_href}/">', 1
+        )
+
+    async def get_response(self, path: str, scope):
+        if path not in ("", ".", "index.html"):
+            try:
+                response = await super().get_response(path, scope)
+            except StarletteHTTPException as exc:
+                if exc.status_code != 404:
+                    raise
+            else:
+                if response.status_code != 404:
+                    return response
+        return HTMLResponse(self._index)
+
+
 _prefix = _site_config.blog_prefix
+_admin_dir = Path("/app/admin")
+_admin_available = _admin_dir.is_dir() and (_admin_dir / "index.html").exists()
+
 if _prefix:
     app.include_router(seo_router, prefix=_prefix, include_in_schema=False)
     app.add_api_route(_prefix, serve_index, response_class=HTMLResponse, include_in_schema=False)
@@ -100,12 +125,22 @@ if _prefix:
     if not _site_config.media.location:
         app.mount(f"{_prefix}/media", StaticFiles(directory=settings.uploads_dir), name="blog-media")
 
+if _admin_available:
+    async def _admin_redirect() -> RedirectResponse:
+        return RedirectResponse(f"{_prefix}/plym-admin/")
+
+    app.add_api_route(f"{_prefix}/plym-admin", _admin_redirect, include_in_schema=False)
+    app.mount(
+        f"{_prefix}/plym-admin",
+        AdminSPA(str(_admin_dir), f"{_prefix}/plym-admin"),
+        name="blog-admin",
+    )
+
 app.include_router(blog_posts_router, prefix=_site_config.blog_prefix)
 
 app.mount("/webfonts", StaticFiles(directory=settings.fonts_dir), name="webfonts")
 if not _site_config.media.location:
     app.mount("/media", StaticFiles(directory=settings.uploads_dir), name="media")
 
-_admin_dir = Path("/app/admin")
-if _admin_dir.is_dir() and (_admin_dir / "index.html").exists():
-    app.mount("/admin", StaticFiles(directory=str(_admin_dir), html=True), name="admin")
+if _admin_available:
+    app.mount("/admin", AdminSPA(str(_admin_dir), "/admin"), name="admin")

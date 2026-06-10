@@ -6,6 +6,11 @@
 		reverse_proxy api:8000
 	}
 
+	handle_path {$PLYM_BLOG_PREFIX:/blog}/api/* {
+		rewrite * /api{path}
+		reverse_proxy api:8000
+	}
+
 	handle_path {$PLYM_BLOG_PREFIX:/blog}/webfonts/* {
 		root * /srv/storage/webfonts
 		header Cache-Control "public, max-age=31536000, immutable"
