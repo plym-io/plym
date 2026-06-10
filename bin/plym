@@ -307,18 +307,12 @@ EOF
 
 nginx_vhost() {
     locations=$(proxy_locations)
-    redirect=""
-    [ -n "$URL_PATH" ] && redirect="
-    location = / {
-        return 302 $URL_PATH;
-    }
-"
     cat <<EOF
 server {
     listen 80;
     listen [::]:80;
     server_name $HOST;
-$redirect
+
 $locations
 }
 EOF
@@ -424,8 +418,6 @@ caddy_site() {
     if [ -n "$URL_PATH" ]; then
         cat <<EOF
 $HOST {
-	redir / $URL_PATH 302
-
 	handle $URL_PATH {
 		reverse_proxy 127.0.0.1:$PORT
 	}
