@@ -23,7 +23,7 @@ Automated routing requires root privileges. To configure the server manually wit
 
 ## Admin Dashboard
 
-Manage users and content via the built-in [admin portal](https://www.google.com/search?q=/blog/plym-admin). The dashboard features a Markdown-native rich text editor tailored for developer-centric content creation.
+Manage users and content via the built-in [admin portal](/blog/plym-admin). The dashboard features a Markdown-native rich text editor tailored for developer-centric content creation.
 
 ## Templates
 
