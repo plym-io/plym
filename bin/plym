@@ -748,6 +748,22 @@ rebuild_with_fresh_admin() {
     wait_for_health
 }
 
+sync_cli() {
+    installed=$(command -v plym 2>/dev/null) || return 0
+    [ -n "$installed" ] && [ "$installed" != "$PROJECT_ROOT/bin/plym" ] || return 0
+    dir=$(dirname "$installed")
+    if [ ! -w "$dir" ]; then
+        note "CLI at $installed isn't writable — refresh it with: cp $PROJECT_ROOT/bin/plym $installed"
+        return 0
+    fi
+    tmp=$(mktemp "$dir/.plym.XXXXXX" 2>/dev/null) || return 0
+    if cp "$PROJECT_ROOT/bin/plym" "$tmp" && chmod +x "$tmp"; then
+        mv -f "$tmp" "$installed"
+    else
+        rm -f "$tmp"
+    fi
+}
+
 cmd_admin_update() {
     enter_project
     version=$(grep '^PLYM_ADMIN_VERSION=' .env 2>/dev/null | cut -d= -f2- | head -1)
@@ -763,6 +779,7 @@ cmd_update() {
     before=$(git rev-parse HEAD)
     spin "Pulling latest plym" git pull --ff-only
     after=$(git rev-parse HEAD)
+    sync_cli
     spin "Rebuilding api with a fresh admin bundle" rebuild_with_fresh_admin
     spin "Reloading caddy" docker compose restart caddy
     spin "Re-rendering published posts" refresh_all_posts

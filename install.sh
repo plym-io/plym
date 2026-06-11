@@ -65,12 +65,12 @@ install_cli() {
     PATH_NOTE=""
     CLI_TARGET="/usr/local/bin/plym"
     if [ -w "$(dirname "$CLI_TARGET")" ] || [ "$(id -u)" = 0 ]; then
-        ln -sf "$(pwd)/bin/plym" "$CLI_TARGET"
+        cp "$(pwd)/bin/plym" "$CLI_TARGET" && chmod +x "$CLI_TARGET"
         CLI_INSTALLED_AT="$CLI_TARGET"
     else
         mkdir -p "$HOME/.local/bin"
         CLI_TARGET="$HOME/.local/bin/plym"
-        ln -sf "$(pwd)/bin/plym" "$CLI_TARGET"
+        cp "$(pwd)/bin/plym" "$CLI_TARGET" && chmod +x "$CLI_TARGET"
         CLI_INSTALLED_AT="$CLI_TARGET"
         case ":$PATH:" in
             *":$HOME/.local/bin:"*) : ;;
