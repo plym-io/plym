@@ -1,22 +1,21 @@
-import mimetypes
-from pathlib import Path
-from urllib.parse import urlparse
+import hashlib
+import io
 
 import aiofiles
 import aiohttp
+from PIL import Image, UnidentifiedImageError
 
 from plym.build.constants import USER_AGENT
 from plym.config.site import SiteConfig
 from plym.settings import settings
 
-_DEFAULT_MEDIA = {"favicon": "image/x-icon", "logo": "image/webp"}
+_HASH_LEN = 8
+_STATIC_URL = "/static"
 
 
 class SiteAsset:
-    def __init__(self, web_path: str, file_path: Path, media_type: str) -> None:
+    def __init__(self, web_path: str) -> None:
         self.web_path = web_path
-        self.file_path = file_path
-        self.media_type = media_type
 
 
 class SiteAssets:
@@ -30,35 +29,54 @@ class AssetDownloader:
         self._site = site
 
     async def download(self) -> SiteAssets:
-        prefix = self._site.blog_prefix
         async with aiohttp.ClientSession(headers={"User-Agent": USER_AGENT}) as session:
-            favicon = await self._fetch(session, self._site.favicon, "favicon", f"{prefix}/favicon.ico")
-            logo = await self._fetch(session, self._site.logo, "logo", f"{prefix}/logo.webp")
+            favicon = await self._favicon(session, self._site.favicon)
+            logo = await self._logo(session, self._site.logo)
         return SiteAssets(favicon=favicon, logo=logo)
 
-    async def _fetch(
-        self,
-        session: aiohttp.ClientSession,
-        source: str | None,
-        stem: str,
-        web_path: str,
+    async def _favicon(
+        self, session: aiohttp.ClientSession, source: str | None
     ) -> SiteAsset | None:
+        data = await self._download(session, source)
+        if data is None:
+            return None
+        try:
+            with Image.open(io.BytesIO(data)) as image:
+                if image.format != "ICO":
+                    return None
+        except (UnidentifiedImageError, OSError):
+            return None
+        return await self._store(data, "favicon", "ico")
+
+    async def _logo(self, session: aiohttp.ClientSession, source: str | None) -> SiteAsset | None:
+        data = await self._download(session, source)
+        if data is None:
+            return None
+        try:
+            with Image.open(io.BytesIO(data)) as image:
+                image.load()
+                image = image.convert("RGBA" if image.mode in ("RGBA", "LA", "P") else "RGB")
+                buf = io.BytesIO()
+                image.save(buf, format="WEBP", quality=82, method=6)
+        except (UnidentifiedImageError, OSError):
+            return None
+        return await self._store(buf.getvalue(), "logo", "webp")
+
+    @staticmethod
+    async def _download(session: aiohttp.ClientSession, source: str | None) -> bytes | None:
         if not source or not source.startswith(("http://", "https://")):
             return None
         response = await session.get(source)
         response.raise_for_status()
-        data = await response.read()
-        media_type = self._media_type(source, response, stem)
-        ext = mimetypes.guess_extension(media_type) or Path(urlparse(source).path).suffix
-        target = settings.static_dir / f"{stem}{ext}"
-        async with aiofiles.open(target, "wb") as f:
-            await f.write(data)
-        return SiteAsset(web_path=web_path, file_path=target, media_type=media_type)
+        return await response.read()
 
     @staticmethod
-    def _media_type(source: str, response: aiohttp.ClientResponse, stem: str) -> str:
-        content_type = response.headers.get("Content-Type", "").split(";")[0].strip()
-        if content_type.startswith("image/"):
-            return content_type
-        guessed, _ = mimetypes.guess_type(urlparse(source).path)
-        return guessed or _DEFAULT_MEDIA[stem]
+    async def _store(data: bytes, stem: str, ext: str) -> SiteAsset:
+        digest = hashlib.sha256(data).hexdigest()[:_HASH_LEN]
+        filename = f"{stem}-{digest}.{ext}"
+        for stale in settings.static_dir.glob(f"{stem}-*.{ext}"):
+            if stale.name != filename:
+                stale.unlink()
+        async with aiofiles.open(settings.static_dir / filename, "wb") as f:
+            await f.write(data)
+        return SiteAsset(web_path=f"{_STATIC_URL}/{filename}")

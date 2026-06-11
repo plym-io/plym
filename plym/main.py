@@ -60,7 +60,6 @@ async def lifespan(app: FastAPI):
     app.state.settings = settings
     app.state.css = artifacts.css
     app.state.prism_js = artifacts.prism_js
-    app.state.assets = artifacts.assets
 
     scheduler = BackupScheduler(site.backup.frequency)
     scheduler.start()

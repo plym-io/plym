@@ -1,40 +1,16 @@
-from pathlib import Path
 from xml.sax.saxutils import escape
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, PlainTextResponse, Response
+from fastapi import APIRouter, Depends
+from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from plym.api.deps import db_session
-from plym.api.state import site_assets, site_config
-from plym.build.asset_downloader import SiteAsset, SiteAssets
+from plym.api.state import site_config
 from plym.config.site import SiteConfig
 from plym.exceptions.posts import PostNotFoundError
 from plym.repository.post_repository import PostRepository
 
 router = APIRouter(tags=["seo"])
-
-_FAVICON_PATH = Path("/app/favicon.ico")
-_LOGO_PATH = Path("/app/logo.webp")
-_CACHE_HEADERS = {"Cache-Control": "public, max-age=86400"}
-
-
-def _serve(asset: SiteAsset | None, default: Path, media_type: str) -> FileResponse:
-    if asset is not None and asset.file_path.exists():
-        return FileResponse(asset.file_path, media_type=asset.media_type, headers=_CACHE_HEADERS)
-    if not default.exists():
-        raise HTTPException(status_code=404)
-    return FileResponse(default, media_type=media_type, headers=_CACHE_HEADERS)
-
-
-@router.get("/favicon.ico", include_in_schema=False)
-async def favicon(assets: SiteAssets = Depends(site_assets)) -> FileResponse:
-    return _serve(assets.favicon, _FAVICON_PATH, "image/x-icon")
-
-
-@router.get("/logo.webp", include_in_schema=False)
-async def logo(assets: SiteAssets = Depends(site_assets)) -> FileResponse:
-    return _serve(assets.logo, _LOGO_PATH, "image/webp")
 
 
 @router.get("/sitemap.xml")
