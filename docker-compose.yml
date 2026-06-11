@@ -41,6 +41,7 @@ services:
       - "${PLYM_PORT:-9173}:80"
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./docker/ai-crawlers.caddy:/etc/caddy/ai-crawlers.caddy:ro
       - ./storage:/srv/storage:ro
 
 volumes:

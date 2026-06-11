@@ -11,8 +11,9 @@ log = logging.getLogger("plym.reconcile")
 async def reconcile_generated_files() -> int:
     if not settings.generated_dir.exists():
         return 0
-    for path in settings.generated_dir.glob("*.html.tmp"):
-        path.unlink()
+    for pattern in ("*.html.tmp", "*.md.tmp"):
+        for path in settings.generated_dir.glob(pattern):
+            path.unlink()
     try:
         factory = get_session_factory()
         async with factory() as session:
@@ -25,10 +26,11 @@ async def reconcile_generated_files() -> int:
         return 0
 
     removed = 0
-    for path in settings.generated_dir.glob("*.html"):
-        if path.stem not in published_slugs:
-            path.unlink()
-            removed += 1
+    for pattern in ("*.html", "*.md"):
+        for path in settings.generated_dir.glob(pattern):
+            if path.stem not in published_slugs:
+                path.unlink()
+                removed += 1
 
     if removed:
         log.warning("reconciled .generated/: removed %d orphan file(s)", removed)

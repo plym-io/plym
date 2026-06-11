@@ -116,6 +116,12 @@ class PostPipeline:
             await f.write(final)
         tmp.replace(target)
 
+        md_target = settings.generated_dir / f"{slug}.md"
+        md_tmp = md_target.with_suffix(".md.tmp")
+        async with aiofiles.open(md_tmp, "w", encoding="utf-8") as f:
+            await f.write(content)
+        md_tmp.replace(md_target)
+
         self._store.delete_prefix("index:")
         return PostRenderResult(
             html=final,
@@ -174,6 +180,9 @@ class PostPipeline:
         path = settings.generated_dir / f"{slug}.html"
         if path.exists():
             path.unlink()
+        md_path = settings.generated_dir / f"{slug}.md"
+        if md_path.exists():
+            md_path.unlink()
         self._store.delete_prefix("index:")
 
     def index_cache_get(self, key: str) -> str | None:

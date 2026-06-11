@@ -64,10 +64,14 @@
 
 	handle_path {$PLYM_BLOG_PREFIX:/blog}/* {
 		root * /srv/storage/.generated
+
+		import /etc/caddy/ai-crawlers.caddy
+
 		@page file {path}.html
 		handle @page {
 			rewrite * {path}.html
 			header Cache-Control "public, max-age=300, stale-while-revalidate=60"
+			header Vary "User-Agent"
 			file_server
 		}
 		handle {
