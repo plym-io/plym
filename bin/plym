@@ -1,20 +1,11 @@
 #!/bin/sh
-# plym CLI
-#   plym list
-#   plym use <name|dir>
-#   plym template install <name> [ref] [--update]
-#   plym update
-#   plym reinstall [--yes]
-#   plym reload
-#   plym rebuild
-# Global: -C <dir> / --project <dir> / PLYM_DIR target a specific blog.
-
 set -e
 
 REPO_OWNER="${PLYM_TEMPLATE_REPO_OWNER:-plym-io}"
 REPO_NAME="${PLYM_TEMPLATE_REPO_NAME:-plym-templates}"
 HEALTH_TIMEOUT_SECONDS="${PLYM_HEALTH_TIMEOUT_SECONDS:-60}"
 INSTALL_URL="${PLYM_INSTALL_URL:-https://raw.githubusercontent.com/plym-io/plym/main/install.sh}"
+VERBOSE="${PLYM_VERBOSE:-0}"
 
 PLYM_HOME="${PLYM_CONFIG_HOME:-$HOME/.config/plym}"
 ACTIVE_FILE="$PLYM_HOME/active"
@@ -32,6 +23,11 @@ fail() { printf "%s✗%s %s\n" "$ACCENT" "$RESET" "$1" >&2; exit "${2:-1}"; }
 [ -e /dev/tty ] && SPIN_OUT=/dev/tty || SPIN_OUT=/dev/stdout
 spin() {
     msg="$1"; shift
+    if [ "$VERBOSE" = "1" ]; then
+        printf "%s→%s %s\n" "$ACCENT" "$RESET" "$msg"
+        "$@"
+        return $?
+    fi
     log=$(mktemp)
     "$@" >"$log" 2>&1 &
     pid=$!
@@ -135,9 +131,10 @@ Usage:
   plym admin update                    Refetch the admin app release and rebuild the api image.
   plym update                          Pull the latest plym, rebuild (api deps + admin), reload caddy,
                                        run migrations, and re-render. Updates the whole stack.
-  plym reinstall [--yes]               Wipe the stack AND its database volume, then reinstall from
+  plym reinstall [--yes] [--verbose]   Wipe the stack AND its database volume, then reinstall from
                                        source. Destructive: deletes all posts, regenerates the admin
-                                       password. Asks for confirmation unless --yes.
+                                       password. Asks for confirmation unless --yes. --verbose streams
+                                       the full install logs instead of a spinner.
   plym reload                          Restart the api to apply config.yaml. No re-render — use for
                                        runtime-only changes (http_cache, pagination, robots, media).
   plym rebuild                         Restart the api and re-render every published post. Use when a
@@ -153,6 +150,7 @@ Environment overrides:
   PLYM_TEMPLATE_REPO_OWNER (default: plym-io)
   PLYM_TEMPLATE_REPO_NAME  (default: plym-templates)
   PLYM_HEALTH_TIMEOUT_SECONDS (default: 60)
+  PLYM_VERBOSE=1           Stream full command output instead of a spinner.
 EOF
 }
 
@@ -208,10 +206,6 @@ normalize_prefix() {
     printf '%s' "$p"
 }
 
-# blog_prefix lives in two places — config.yaml (read by the api) and .env's
-# PLYM_BLOG_PREFIX (read by caddy). A hand-edit of config.yaml leaves caddy on the
-# old prefix, so reload/rebuild appear to do nothing. Detect that drift and steer
-# the user to `plym set url`, which updates both and re-renders the baked-in URLs.
 warn_prefix_drift() {
     cfg=$(normalize_prefix "$(grep '^blog_prefix:' config.yaml 2>/dev/null | awk '{print $2}')")
     cfg="${cfg:-/blog}"
@@ -769,10 +763,6 @@ cmd_update() {
     before=$(git rev-parse HEAD)
     spin "Pulling latest plym" git pull --ff-only
     after=$(git rev-parse HEAD)
-    # Always cache-bust the build: the admin (a separate repo, pinned by version)
-    # ships fresh dist.tar.gz on the same tag, so a no-op core pull can still hide a
-    # new admin bundle. Docker's layer cache keeps the heavy deps layer when nothing
-    # changed, so a no-change update only re-fetches the small admin asset.
     spin "Rebuilding api with a fresh admin bundle" rebuild_with_fresh_admin
     spin "Reloading caddy" docker compose restart caddy
     spin "Re-rendering published posts" refresh_all_posts
@@ -784,11 +774,19 @@ cmd_update() {
     fi
 }
 
-# Full clean reinstall from source: drop the stack + its volumes (fresh DB), delete
-# the checkout, and re-run the official installer with this blog's name/email/port.
-# Destructive — wipes the database (all posts) and regenerates the admin password.
 cmd_reinstall() {
     enter_project
+    yes=""
+    verbose=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --yes|-y) yes=1 ;;
+            --verbose|-v) verbose=1 ;;
+            -*) fail "Unknown option: $1" ;;
+        esac
+        shift
+    done
+
     name=$(grep '^name:' config.yaml 2>/dev/null | sed 's/^name:[[:space:]]*//')
     email=$(grep '^PLYM_SUPERUSER_EMAIL=' .env 2>/dev/null | cut -d= -f2- | head -1)
     port=$(grep '^PLYM_PORT=' .env 2>/dev/null | cut -d= -f2- | head -1)
@@ -797,18 +795,19 @@ cmd_reinstall() {
 
     note "Reinstalling $PROJECT_LABEL from source."
     note "This DELETES the database volume (every post) and regenerates the admin password. Back up first if you need the content."
-    if [ "$1" != "--yes" ] && [ "$1" != "-y" ]; then
+    if [ -z "$yes" ]; then
         [ -e /dev/tty ] || fail "Refusing to reinstall non-interactively. Re-run with: plym reinstall --yes"
         printf "Type the blog name (%s%s%s) to confirm: " "$BOLD" "$name" "$RESET" > /dev/tty
         read confirm < /dev/tty || confirm=""
         [ "$confirm" = "$name" ] || fail "Did not match — aborted."
     fi
 
+    [ -n "$verbose" ] && { VERBOSE=1; export PLYM_VERBOSE=1; }
+
     spin "Removing stack and volumes" docker compose down -v
     cd "$parent"
     rm -rf "$dir"
     say "Reinstalling from $INSTALL_URL …"
-    # exec replaces this process, so the now-deleted CLI script is never read again.
     export PLYM_DIR="$dir" PLYM_PORT="$port"
     exec sh -c 'curl -fsSL "$1" | sh -s "$2" "$3"' _ "$INSTALL_URL" "$name" "$email"
 }
