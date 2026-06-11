@@ -10,7 +10,6 @@ from plym.config.site import SiteConfig
 from plym.settings import settings
 
 _HASH_LEN = 8
-_STATIC_URL = "/static"
 
 
 class SiteAsset:
@@ -48,6 +47,9 @@ class AssetDownloader:
             return None
         return await self._store(data, "favicon", "ico")
 
+    def _web_path(self, filename: str) -> str:
+        return f"{self._site.blog_prefix}/static/{filename}"
+
     async def _logo(self, session: aiohttp.ClientSession, source: str | None) -> SiteAsset | None:
         data = await self._download(session, source)
         if data is None:
@@ -70,8 +72,7 @@ class AssetDownloader:
         response.raise_for_status()
         return await response.read()
 
-    @staticmethod
-    async def _store(data: bytes, stem: str, ext: str) -> SiteAsset:
+    async def _store(self, data: bytes, stem: str, ext: str) -> SiteAsset:
         digest = hashlib.sha256(data).hexdigest()[:_HASH_LEN]
         filename = f"{stem}-{digest}.{ext}"
         for stale in settings.static_dir.glob(f"{stem}-*.{ext}"):
@@ -79,4 +80,4 @@ class AssetDownloader:
                 stale.unlink()
         async with aiofiles.open(settings.static_dir / filename, "wb") as f:
             await f.write(data)
-        return SiteAsset(web_path=f"{_STATIC_URL}/{filename}")
+        return SiteAsset(web_path=self._web_path(filename))
