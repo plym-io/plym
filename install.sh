@@ -196,14 +196,40 @@ wait_for_app() {
 spin "Starting plym" wait_for_app \
     || fail "App did not come up within 120 seconds (last log lines above)."
 
+api_call() {
+    method="$1"; path="$2"; shift 2
+    RESP=$(curl -sS -w '\n%{http_code}' -X "$method" "$BASE_URL$path" "$@" 2>&1)
+    CODE=$(printf '%s\n' "$RESP" | tail -n1)
+    BODY=$(printf '%s\n' "$RESP" | sed '$d')
+}
+
+api_ok() {
+    case "$CODE" in 2*) return 0 ;; *) return 1 ;; esac
+}
+
+show_request_error() {
+    case "${CODE:-}" in
+        ""|000) echo "  could not reach $BASE_URL — is the api container running?" >&2 ;;
+        *)      echo "  server returned HTTP $CODE" >&2 ;;
+    esac
+    [ -n "$BODY" ] && printf '%s\n' "$BODY" | sed 's/^/  /' >&2
+    return 0
+}
+
 seed_welcome() {
-    token=$(curl -fsS -X POST $BASE_URL/api/auth/login \
+    api_call POST /api/auth/login \
         -H 'Content-Type: application/json' \
-        -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}" \
-        | grep -o '"access_token":"[^"]*"' | sed 's/^"access_token":"//;s/"$//')
-    [ -z "$token" ] && { echo "Login failed for $ADMIN_EMAIL. A leftover database volume may still hold an old password — run 'docker compose down -v' and reinstall." >&2; return 1; }
+        -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}"
+    token=$(printf '%s' "$BODY" | grep -o '"access_token":"[^"]*"' | sed 's/^"access_token":"//;s/"$//')
+    [ -z "$token" ] && {
+        echo "Login failed for $ADMIN_EMAIL." >&2
+        show_request_error
+        echo "  A leftover database volume may still hold an old password — run 'docker compose down -v' and reinstall." >&2
+        return 1
+    }
 
     excerpt="plym is now live on your server. Check out this article to help you complete your setup."
+    exec_err=$(mktemp)
     payload=$(
         { [ -f docs/HELLO.md ] && cat docs/HELLO.md \
             || printf '# Welcome\n\n**%s** is live. Open the admin dashboard to edit this post.\n' "$NAME"; } \
@@ -211,23 +237,41 @@ seed_welcome() {
 import json, sys
 name, excerpt = sys.argv[1], sys.argv[2]
 print(json.dumps({"title": f"Hello from {name}", "slug": "hello", "content": sys.stdin.read(), "excerpt": excerpt}))
-' "$NAME" "$excerpt"
+' "$NAME" "$excerpt" 2>"$exec_err"
     )
-    [ -z "$payload" ] && { echo "Could not build the welcome post (is the api container running?)." >&2; return 1; }
+    if [ -z "$payload" ]; then
+        echo "Could not build the welcome post — 'docker compose exec api' failed:" >&2
+        [ -s "$exec_err" ] && sed 's/^/  /' "$exec_err" >&2
+        rm -f "$exec_err"
+        return 1
+    fi
+    rm -f "$exec_err"
 
-    post_id=$(curl -fsS -X POST $BASE_URL/api/posts \
+    api_call POST /api/posts \
         -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
-        -d "$payload" \
-        | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
-    [ -z "$post_id" ] && { echo "Could not create the welcome post." >&2; return 1; }
+        -d "$payload"
+    post_id=$(printf '%s' "$BODY" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
+    [ -z "$post_id" ] && {
+        echo "Could not create the welcome post." >&2
+        show_request_error
+        return 1
+    }
 
-    curl -fsS -X PATCH "$BASE_URL/api/posts/$post_id" \
+    api_call PATCH "/api/posts/$post_id" \
         -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
-        -d '{"status":"published"}' >/dev/null \
-        || { echo "Publishing the post failed (PATCH /api/posts/$post_id)." >&2; return 1; }
-    curl -fsS -X POST "$BASE_URL/api/posts/$post_id/refresh" \
-        -H "Authorization: Bearer $token" >/dev/null \
-        || { echo "Rendering the post failed (POST /api/posts/$post_id/refresh)." >&2; return 1; }
+        -d '{"status":"published"}'
+    api_ok || {
+        echo "Publishing the post failed (PATCH /api/posts/$post_id)." >&2
+        show_request_error
+        return 1
+    }
+
+    api_call POST "/api/posts/$post_id/refresh" -H "Authorization: Bearer $token"
+    api_ok || {
+        echo "Rendering the post failed (POST /api/posts/$post_id/refresh)." >&2
+        show_request_error
+        return 1
+    }
 }
 spin "Publishing your first post" seed_welcome \
     || fail "Could not seed the welcome post (see message above)."
