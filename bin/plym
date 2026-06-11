@@ -4,6 +4,7 @@
 #   plym use <name|dir>
 #   plym template install <name> [ref] [--update]
 #   plym update
+#   plym reinstall [--yes]
 #   plym reload
 #   plym rebuild
 # Global: -C <dir> / --project <dir> / PLYM_DIR target a specific blog.
@@ -13,6 +14,7 @@ set -e
 REPO_OWNER="${PLYM_TEMPLATE_REPO_OWNER:-plym-io}"
 REPO_NAME="${PLYM_TEMPLATE_REPO_NAME:-plym-templates}"
 HEALTH_TIMEOUT_SECONDS="${PLYM_HEALTH_TIMEOUT_SECONDS:-60}"
+INSTALL_URL="${PLYM_INSTALL_URL:-https://raw.githubusercontent.com/plym-io/plym/main/install.sh}"
 
 PLYM_HOME="${PLYM_CONFIG_HOME:-$HOME/.config/plym}"
 ACTIVE_FILE="$PLYM_HOME/active"
@@ -133,6 +135,9 @@ Usage:
   plym admin update                    Refetch the admin app release and rebuild the api image.
   plym update                          Pull the latest plym, rebuild (api deps + admin), reload caddy,
                                        run migrations, and re-render. Updates the whole stack.
+  plym reinstall [--yes]               Wipe the stack AND its database volume, then reinstall from
+                                       source. Destructive: deletes all posts, regenerates the admin
+                                       password. Asks for confirmation unless --yes.
   plym reload                          Restart the api to apply config.yaml. No re-render — use for
                                        runtime-only changes (http_cache, pagination, robots, media).
   plym rebuild                         Restart the api and re-render every published post. Use when a
@@ -779,6 +784,35 @@ cmd_update() {
     fi
 }
 
+# Full clean reinstall from source: drop the stack + its volumes (fresh DB), delete
+# the checkout, and re-run the official installer with this blog's name/email/port.
+# Destructive — wipes the database (all posts) and regenerates the admin password.
+cmd_reinstall() {
+    enter_project
+    name=$(grep '^name:' config.yaml 2>/dev/null | sed 's/^name:[[:space:]]*//')
+    email=$(grep '^PLYM_SUPERUSER_EMAIL=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    port=$(grep '^PLYM_PORT=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    dir=$(basename "$PROJECT_ROOT")
+    parent=$(dirname "$PROJECT_ROOT")
+
+    note "Reinstalling $PROJECT_LABEL from source."
+    note "This DELETES the database volume (every post) and regenerates the admin password. Back up first if you need the content."
+    if [ "$1" != "--yes" ] && [ "$1" != "-y" ]; then
+        [ -e /dev/tty ] || fail "Refusing to reinstall non-interactively. Re-run with: plym reinstall --yes"
+        printf "Type the blog name (%s%s%s) to confirm: " "$BOLD" "$name" "$RESET" > /dev/tty
+        read confirm < /dev/tty || confirm=""
+        [ "$confirm" = "$name" ] || fail "Did not match — aborted."
+    fi
+
+    spin "Removing stack and volumes" docker compose down -v
+    cd "$parent"
+    rm -rf "$dir"
+    say "Reinstalling from $INSTALL_URL …"
+    # exec replaces this process, so the now-deleted CLI script is never read again.
+    export PLYM_DIR="$dir" PLYM_PORT="$port"
+    exec sh -c 'curl -fsSL "$1" | sh -s "$2" "$3"' _ "$INSTALL_URL" "$name" "$email"
+}
+
 OPT_PROJECT=""
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -820,6 +854,7 @@ case "${1:-}" in
     reload) cmd_reload ;;
     rebuild) cmd_rebuild ;;
     update) cmd_update ;;
+    reinstall) shift; cmd_reinstall "$@" ;;
     -h|--help|help|"") usage ;;
     *) usage; exit 1 ;;
 esac

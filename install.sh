@@ -7,6 +7,9 @@ set -e
 
 REPO_URL="${PLYM_REPO_URL:-https://github.com/plym-io/plym.git}"
 INSTALL_DIR="${PLYM_DIR:-plym}"
+INSTALL_URL="${PLYM_INSTALL_URL:-https://raw.githubusercontent.com/plym-io/plym/main/install.sh}"
+VERBOSE=0
+REINSTALL_AVAILABLE=""
 
 BOLD=$(printf '\033[1m')
 DIM=$(printf '\033[2m')
@@ -17,11 +20,35 @@ say()  { printf "%s→%s %s\n" "$ACCENT" "$RESET" "$1"; }
 note() { printf "%s%s%s\n" "$DIM" "$1" "$RESET"; }
 fail() { printf "%s✗%s %s\n" "$ACCENT" "$RESET" "$1" >&2; exit 1; }
 
+# Any non-zero exit (a failed command under `set -e`, or a fail call) lands here.
+# The real error was already printed above (by spin's log dump or the command's own
+# stderr); this just states the install failed and points at the recovery path.
+on_exit() {
+    code=$?
+    trap - EXIT
+    [ "$code" -eq 0 ] && exit 0
+    printf "\n%s✗%s Installation failed (exit %s) — the actual error is shown above.\n" "$ACCENT" "$RESET" "$code" >&2
+    if [ -n "$REINSTALL_AVAILABLE" ]; then
+        printf "  Wipe this attempt and reinstall from source:  %splym reinstall%s\n" "$BOLD" "$RESET" >&2
+    else
+        printf "  Fix the problem above, then run the installer again.\n" >&2
+    fi
+    [ "$VERBOSE" = "1" ] || printf "  Re-run with %s--verbose%s to stream the full logs.\n" "$BOLD" "$RESET" >&2
+    exit "$code"
+}
+trap on_exit EXIT
+
 # Animate while a command runs, swallowing its output. Only the plym-level
 # message is shown; the captured log is printed only if the command fails.
 [ -e /dev/tty ] && SPIN_OUT=/dev/tty || SPIN_OUT=/dev/stdout
 spin() {
     msg="$1"; shift
+    # Verbose: no spinner, stream the command's output live so the user sees real logs.
+    if [ "$VERBOSE" = "1" ]; then
+        printf "%s→%s %s\n" "$ACCENT" "$RESET" "$msg"
+        "$@"
+        return $?
+    fi
     log=$(mktemp)
     "$@" >"$log" 2>&1 &
     pid=$!
@@ -37,10 +64,35 @@ spin() {
         printf "\r%s✓%s %s\n" "$ACCENT" "$RESET" "$msg" > "$SPIN_OUT"
     else
         printf "\r%s✗%s %s\n" "$ACCENT" "$RESET" "$msg" > "$SPIN_OUT"
-        cat "$log" >&2
+        # Always surface something on failure, even if the command printed nothing.
+        if [ -s "$log" ]; then cat "$log" >&2
+        else printf "  (the command produced no output — re-run with --verbose for live logs)\n" >&2; fi
     fi
     rm -f "$log"
     return "$rc"
+}
+
+# Symlink the CLI into PATH. Run early so `plym reinstall` is available even when a
+# later step (build, health, seed) fails. Best-effort: prefers /usr/local/bin, falls
+# back to ~/.local/bin without sudo.
+install_cli() {
+    PATH_NOTE=""
+    CLI_TARGET="/usr/local/bin/plym"
+    if [ -w "$(dirname "$CLI_TARGET")" ] || [ "$(id -u)" = 0 ]; then
+        ln -sf "$(pwd)/bin/plym" "$CLI_TARGET"
+        CLI_INSTALLED_AT="$CLI_TARGET"
+    else
+        mkdir -p "$HOME/.local/bin"
+        CLI_TARGET="$HOME/.local/bin/plym"
+        ln -sf "$(pwd)/bin/plym" "$CLI_TARGET"
+        CLI_INSTALLED_AT="$CLI_TARGET"
+        case ":$PATH:" in
+            *":$HOME/.local/bin:"*) : ;;
+            *) PATH_NOTE="  ${DIM}Add this to your shell profile to use 'plym' globally:${RESET}
+    ${BOLD}export PATH=\"\$HOME/.local/bin:\$PATH\"${RESET}
+" ;;
+        esac
+    fi
 }
 
 # True if something is already listening on TCP port $1. Used to climb to a free
@@ -65,6 +117,16 @@ project_exists() {
     fi
     return 1
 }
+
+# Options before the positional NAME / EMAIL args (e.g. sh -s --verbose "My Blog" me@x.com)
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -v|--verbose) VERBOSE=1; shift ;;
+        --) shift; break ;;
+        -*) fail "Unknown option: $1 (supported: --verbose)" ;;
+        *) break ;;
+    esac
+done
 
 # Blog name — arg or interactive prompt
 NAME="$1"
@@ -108,6 +170,15 @@ fi
 spin "Fetching plym" git clone --quiet --depth 1 "$REPO_URL" "$INSTALL_DIR" \
     || fail "Could not clone $REPO_URL (see output above)."
 cd "$INSTALL_DIR"
+
+# Install the CLI now (not at the end) so a failure in any later step can tell the
+# user to run `plym reinstall`. Mark this blog active immediately too, so that
+# `plym reinstall` resolves it even if the install dies before the final steps.
+install_cli
+PLYM_HOME="${PLYM_CONFIG_HOME:-$HOME/.config/plym}"
+mkdir -p "$PLYM_HOME"
+pwd > "$PLYM_HOME/active"
+REINSTALL_AVAILABLE=1
 
 # Default to 9173 and climb until free, so a second blog on the same machine
 # gets 9174, 9175, … with no extra flags. An exported PLYM_PORT sets the start.
@@ -196,9 +267,11 @@ print(json.dumps({"title": f"Hello from {name}", "slug": "hello", "content": sys
 
     curl -fsS -X PATCH "$BASE_URL/api/posts/$post_id" \
         -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
-        -d '{"status":"published"}' >/dev/null
+        -d '{"status":"published"}' >/dev/null \
+        || { echo "Publishing the post failed (PATCH /api/posts/$post_id)." >&2; return 1; }
     curl -fsS -X POST "$BASE_URL/api/posts/$post_id/refresh" \
-        -H "Authorization: Bearer $token" >/dev/null
+        -H "Authorization: Bearer $token" >/dev/null \
+        || { echo "Rendering the post failed (POST /api/posts/$post_id/refresh)." >&2; return 1; }
 }
 spin "Publishing your first post" seed_welcome \
     || fail "Could not seed the welcome post (see message above)."
@@ -212,28 +285,7 @@ Password: $ADMIN_PASSWORD
 EOF
 chmod 600 .plym-credentials
 
-# Install the CLI symlink (prefer /usr/local/bin when writable, fall back to ~/.local/bin)
-PATH_NOTE=""
-CLI_TARGET="/usr/local/bin/plym"
-if [ -w "$(dirname "$CLI_TARGET")" ] || [ "$(id -u)" = 0 ]; then
-    ln -sf "$(pwd)/bin/plym" "$CLI_TARGET"
-    CLI_INSTALLED_AT="$CLI_TARGET"
-else
-    mkdir -p "$HOME/.local/bin"
-    CLI_TARGET="$HOME/.local/bin/plym"
-    ln -sf "$(pwd)/bin/plym" "$CLI_TARGET"
-    CLI_INSTALLED_AT="$CLI_TARGET"
-    case ":$PATH:" in
-        *":$HOME/.local/bin:"*) : ;;
-        *) PATH_NOTE="  ${DIM}Add this to your shell profile to use 'plym' globally:${RESET}
-    ${BOLD}export PATH=\"\$HOME/.local/bin:\$PATH\"${RESET}
-" ;;
-    esac
-fi
-
-PLYM_HOME="${PLYM_CONFIG_HOME:-$HOME/.config/plym}"
-mkdir -p "$PLYM_HOME"
-pwd > "$PLYM_HOME/active"
+# The CLI symlink and the active-blog pointer were already set early (after clone).
 
 # Success banner
 cat <<EOF
