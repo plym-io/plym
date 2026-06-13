@@ -320,14 +320,18 @@ dns_preflight() {
 }
 
 proxy_locations() {
+    max_body=$(grep '^PLYM_UPLOAD_MAX_BYTES=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    max_body="${max_body:-10485760}"
     if [ -n "$URL_PATH" ]; then
         cat <<EOF
     location = $URL_PATH {
+        client_max_body_size $max_body;
         proxy_pass http://127.0.0.1:$PORT;
 $PROXY_HEADERS
     }
 
     location $URL_PATH/ {
+        client_max_body_size $max_body;
         proxy_pass http://127.0.0.1:$PORT;
 $PROXY_HEADERS
     }
@@ -335,6 +339,7 @@ EOF
     else
         cat <<EOF
     location / {
+        client_max_body_size $max_body;
         proxy_pass http://127.0.0.1:$PORT;
 $PROXY_HEADERS
     }
