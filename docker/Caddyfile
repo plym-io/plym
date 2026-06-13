@@ -71,7 +71,7 @@
 		handle @page {
 			rewrite * {path}.html
 			header Cache-Control "public, max-age=300, stale-while-revalidate=60"
-			header Vary "User-Agent"
+			header Vary "User-Agent, Accept"
 			file_server
 		}
 		handle {
