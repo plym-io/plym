@@ -1,11 +1,8 @@
-@llm {
-	header_regexp User-Agent (?i)(gptbot|chatgpt-user|oai-searchbot|claudebot|claude-user|claude-web|claude-searchbot|claude-code|anthropic-ai|perplexitybot|perplexity-user|googleother|google-notebooklm|google-cloudvertexbot|gemini-deep-research|meta-externalagent|meta-externalfetcher|bytespider|ccbot|amazonbot|bedrockbot|cohere-ai|cohere-training-data-crawler|mistralai-user|deepseekbot|youbot|diffbot|imagesiftbot|timpibot|omgili|friendlycrawler|icc-crawler|exabot|firecrawlagent|crawl4ai|tavilybot|linerbot|duckassistbot|andibot|iaskbot|phindbot|petalbot|semrushbot-ocob|semrushbot-swa|brightbot|ai2bot|velenpublicwebcrawler|yandexadditional)
-	file {path}.md
-}
+@llm `(header_regexp('User-Agent', '(?i)(gptbot|chatgpt-user|oai-searchbot|claudebot|claude-user|claude-web|claude-searchbot|claude-code|anthropic-ai|perplexitybot|perplexity-user|googleother|google-notebooklm|google-cloudvertexbot|gemini-deep-research|meta-externalagent|meta-externalfetcher|bytespider|ccbot|amazonbot|bedrockbot|cohere-ai|cohere-training-data-crawler|mistralai-user|deepseekbot|youbot|diffbot|imagesiftbot|timpibot|omgili|friendlycrawler|icc-crawler|exabot|firecrawlagent|crawl4ai|tavilybot|linerbot|duckassistbot|andibot|iaskbot|phindbot|petalbot|semrushbot-ocob|semrushbot-swa|brightbot|ai2bot|velenpublicwebcrawler|yandexadditional)') || header({'Accept': '*text/markdown*'})) && file({'try_files': [path + '.md']})`
 handle @llm {
 	rewrite * {path}.md
 	header Content-Type "text/markdown; charset=utf-8"
-	header Vary "User-Agent"
+	header Vary "User-Agent, Accept"
 	header Cache-Control "public, max-age=300"
 	file_server
 }
