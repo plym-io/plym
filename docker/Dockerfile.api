@@ -15,14 +15,11 @@ RUN uv pip install --system --no-cache .
 ARG PLYM_ADMIN_VERSION=
 ARG PLYM_ADMIN_URL=https://github.com/plym-io/plym-admin/releases/download
 ARG PLYM_ADMIN_BUST=
+COPY docker/fetch-admin.py /usr/local/bin/fetch-admin.py
 RUN mkdir -p /app/admin && \
     : "bust=${PLYM_ADMIN_BUST}" && \
     if [ -n "$PLYM_ADMIN_VERSION" ]; then \
-      python3 -c "import urllib.request, tarfile, io; \
-url='${PLYM_ADMIN_URL}/${PLYM_ADMIN_VERSION}/dist.tar.gz'; \
-print('fetching admin:', url); \
-data=urllib.request.urlopen(url).read(); \
-tarfile.open(fileobj=io.BytesIO(data)).extractall('/app/admin')"; \
+      python3 /usr/local/bin/fetch-admin.py "${PLYM_ADMIN_URL}/${PLYM_ADMIN_VERSION}/dist.tar.gz" /app/admin; \
     fi
 
 EXPOSE 8000

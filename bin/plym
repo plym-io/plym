@@ -173,13 +173,28 @@ load_creds() {
         fail "Could not read PLYM_SUPERUSER_EMAIL/PASSWORD from .env"
 }
 
-login() {
-    load_creds
+retry() {
+    attempts="$1"; shift
+    n=1
+    while :; do
+        "$@" && return 0
+        [ "$n" -ge "$attempts" ] && return 1
+        n=$((n + 1))
+        sleep 1
+    done
+}
+
+attempt_login() {
     TOKEN=$(curl -fsS -X POST $BASE_URL/api/auth/login \
         -H 'Content-Type: application/json' \
         -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" \
         | grep -o '"access_token":"[^"]*"' | sed 's/^"access_token":"//;s/"$//')
-    [ -n "$TOKEN" ] || fail "Login failed for $EMAIL"
+    [ -n "$TOKEN" ]
+}
+
+login() {
+    load_creds
+    retry 5 attempt_login || fail "Login failed for $EMAIL"
 }
 
 refresh_all_posts() {
@@ -196,6 +211,11 @@ refresh_all_posts() {
 
 restart_api() {
     docker compose restart api >/dev/null
+    wait_for_health
+}
+
+restart_caddy() {
+    docker compose restart caddy >/dev/null
     wait_for_health
 }
 
@@ -786,7 +806,7 @@ cmd_update() {
     after=$(git rev-parse HEAD)
     sync_cli
     spin "Rebuilding api with a fresh admin bundle" rebuild_with_fresh_admin
-    spin "Reloading caddy" docker compose restart caddy
+    spin "Reloading caddy" restart_caddy
     spin "Re-rendering published posts" refresh_all_posts
     warn_prefix_drift
     if [ "$before" = "$after" ]; then
