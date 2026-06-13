@@ -236,7 +236,7 @@ fetch_template_remote() {
     tmp=$(mktemp -d)
     url="https://codeload.github.com/$REPO_OWNER/$REPO_NAME/tar.gz/$ref"
     if ! curl -fsSL "$url" \
-        | tar -xz -C "$tmp" --strip-components=1 "$REPO_NAME-$ref/$name" 2>/dev/null \
+        | tar -xz -C "$tmp" --strip-components=2 "$REPO_NAME-$ref/templates/$name" 2>/dev/null \
         || [ ! -d "$tmp/$name" ]; then
         rm -rf "$tmp"
         echo "Template '$name' not found in $REPO_OWNER/$REPO_NAME@$ref" >&2
