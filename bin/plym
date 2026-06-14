@@ -578,7 +578,6 @@ cmd_set_url() {
             --nginx)   PROXY=nginx; shift ;;
             --caddy)   PROXY=caddy; shift ;;
             --traefik) PROXY=traefik; shift ;;
-            -v|--verbose) VERBOSE=1; export PLYM_VERBOSE=1; shift ;;
             -*) fail "Unknown option: $1" ;;
             *) URL_ARG="$1"; shift ;;
         esac
@@ -723,7 +722,6 @@ cmd_template_install() {
     while [ $# -gt 0 ]; do
         case "$1" in
             --update|-u) update=1 ;;
-            -v|--verbose) VERBOSE=1; export PLYM_VERBOSE=1 ;;
             -*) fail "Unknown option: $1" ;;
             *)
                 if [ -z "$name" ]; then name="$1"
@@ -812,7 +810,6 @@ cmd_reinstall() {
     while [ $# -gt 0 ]; do
         case "$1" in
             --yes|-y) yes=1 ;;
-            -v|--verbose) VERBOSE=1; export PLYM_VERBOSE=1 ;;
             -*) fail "Unknown option: $1" ;;
         esac
         shift
@@ -852,6 +849,19 @@ while [ $# -gt 0 ]; do
         --) shift; break ;;
         *) break ;;
     esac
+done
+
+# --verbose is global and may appear anywhere, including AFTER the command (e.g.
+# `plym update --verbose`). Strip it from the remaining args, preserving order and spaces, so it
+# works for every command — not only the ones that happen to parse their own options.
+_n=$#; _i=0
+while [ "$_i" -lt "$_n" ]; do
+    _a="$1"; shift
+    case "$_a" in
+        -v|--verbose) VERBOSE=1; export PLYM_VERBOSE=1 ;;
+        *) set -- "$@" "$_a" ;;
+    esac
+    _i=$((_i + 1))
 done
 
 case "${1:-}" in
