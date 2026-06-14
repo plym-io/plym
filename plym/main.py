@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,7 +9,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
 
 from plym.api.auth_router import router as auth_router
-from plym.api.blog_router import index_router, posts_router as blog_posts_router, serve_index
+from plym.api.blog_router import index_router, serve_index
+from plym.api.blog_router import posts_router as blog_posts_router
 from plym.api.config_router import router as config_router
 from plym.api.logs_router import router as logs_router
 from plym.api.media_router import router as media_router
@@ -20,12 +22,16 @@ from plym.build.pipeline import run_build
 from plym.config.site import load_site_config
 from plym.db.migrate import apply_migrations
 from plym.db.session import dispose_engine
+from plym.instrumentation.log_config import configure_logging
 from plym.instrumentation.middleware import ActorMiddleware
 from plym.render.reconcile import reconcile_generated_files
 from plym.service.backup_service import BackupScheduler
 from plym.service.bootstrap import ensure_superuser
 from plym.service.token_service import TokenService
 from plym.settings import settings
+
+configure_logging()
+log = logging.getLogger("plym.startup")
 
 
 def _ensure_storage_dirs() -> None:
@@ -47,9 +53,13 @@ _site_config = load_site_config()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     site = load_site_config()
+    log.info("startup: applying migrations")
     await apply_migrations()
+    log.info("startup: ensuring superuser")
     await ensure_superuser()
+    log.info("startup: reconciling generated files")
     await reconcile_generated_files()
+    log.info("startup: running build (fonts, prism, assets, css)")
     artifacts = await run_build(site)
     if artifacts.assets.favicon is not None:
         site.favicon = artifacts.assets.favicon.web_path
@@ -65,8 +75,10 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     app.state.backup_scheduler = scheduler
 
+    log.info("startup: complete — now serving")
     yield
 
+    log.info("shutdown: stopping scheduler and disposing engine")
     await scheduler.stop()
     await dispose_engine()
 
@@ -119,10 +131,16 @@ _admin_available = _admin_dir.is_dir() and (_admin_dir / "index.html").exists()
 if _prefix:
     app.include_router(seo_router, prefix=_prefix, include_in_schema=False)
     app.add_api_route(_prefix, serve_index, response_class=HTMLResponse, include_in_schema=False)
-    app.add_api_route(f"{_prefix}/", serve_index, response_class=HTMLResponse, include_in_schema=False)
-    app.mount(f"{_prefix}/webfonts", StaticFiles(directory=settings.fonts_dir), name="blog-webfonts")
+    app.add_api_route(
+        f"{_prefix}/", serve_index, response_class=HTMLResponse, include_in_schema=False
+    )
+    app.mount(
+        f"{_prefix}/webfonts", StaticFiles(directory=settings.fonts_dir), name="blog-webfonts"
+    )
     if not _site_config.media.location:
-        app.mount(f"{_prefix}/media", StaticFiles(directory=settings.uploads_dir), name="blog-media")
+        app.mount(
+            f"{_prefix}/media", StaticFiles(directory=settings.uploads_dir), name="blog-media"
+        )
 
 if _admin_available:
     async def _admin_redirect() -> RedirectResponse:

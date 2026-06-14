@@ -12,15 +12,10 @@ COPY pyproject.toml README.md ./
 COPY plym ./plym
 RUN uv pip install --system --no-cache .
 
-ARG PLYM_ADMIN_VERSION=
-ARG PLYM_ADMIN_URL=https://github.com/plym-io/plym-admin/releases/download
-ARG PLYM_ADMIN_BUST=
-COPY docker/fetch-admin.py /usr/local/bin/fetch-admin.py
-RUN mkdir -p /app/admin && \
-    : "bust=${PLYM_ADMIN_BUST}" && \
-    if [ -n "$PLYM_ADMIN_VERSION" ]; then \
-      python3 /usr/local/bin/fetch-admin.py "${PLYM_ADMIN_URL}/${PLYM_ADMIN_VERSION}/dist.tar.gz" /app/admin; \
-    fi
+# The admin SPA bundle is NOT baked into the image. It is fetched by the CLI/installer into a
+# bind-mounted ./admin dir (see docker-compose.yml). That keeps a flaky upstream release from ever
+# aborting the build, and lets a failed refetch fall back to the previously-installed bundle.
+RUN mkdir -p /app/admin
 
 EXPOSE 8000
 

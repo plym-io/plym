@@ -7,14 +7,16 @@ INSTALL_URL="${PLYM_INSTALL_URL:-https://raw.githubusercontent.com/plym-io/plym/
 VERBOSE="${PLYM_VERBOSE:-0}"
 REINSTALL_AVAILABLE=""
 
+# Minimal bootstrap: just enough to clone the repo and report problems. Once the repo is
+# checked out we source bin/plym-lib.sh and use the SAME helpers (spin, http, wait_for_health,
+# fetch_admin, box, …) as the plym CLI — no second, drifting copy of that plumbing here.
 BOLD=$(printf '\033[1m')
 DIM=$(printf '\033[2m')
 ACCENT=$(printf '\033[38;5;208m')
 RESET=$(printf '\033[0m')
-
 say()  { printf "%s→%s %s\n" "$ACCENT" "$RESET" "$1"; }
 note() { printf "%s%s%s\n" "$DIM" "$1" "$RESET"; }
-fail() { printf "%s✗%s %s\n" "$ACCENT" "$RESET" "$1" >&2; exit 1; }
+fail() { printf "%s✗%s %s\n" "$ACCENT" "$RESET" "$1" >&2; exit "${2:-1}"; }
 
 on_exit() {
     code=$?
@@ -26,52 +28,19 @@ on_exit() {
     else
         printf "  Fix the problem above, then run the installer again.\n" >&2
     fi
-    [ "$VERBOSE" = "1" ] || printf "  Re-run with %sPLYM_VERBOSE=1%s to stream the full logs.\n" "$BOLD" "$RESET" >&2
+    [ "$VERBOSE" = "1" ] || printf "  Re-run with %s--verbose%s (or PLYM_VERBOSE=1) to stream the full logs.\n" "$BOLD" "$RESET" >&2
     exit "$code"
 }
 trap on_exit EXIT
 
-[ -e /dev/tty ] && SPIN_OUT=/dev/tty || SPIN_OUT=/dev/stdout
-spin() {
-    msg="$1"; shift
-    if [ "$VERBOSE" = "1" ]; then
-        printf "%s→%s %s\n" "$ACCENT" "$RESET" "$msg"
-        "$@"
-        return $?
-    fi
-    log=$(mktemp)
-    "$@" >"$log" 2>&1 &
-    pid=$!
-    while kill -0 "$pid" 2>/dev/null; do
-        for frame in ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏; do
-            kill -0 "$pid" 2>/dev/null || break
-            printf "\r%s%s%s %s " "$ACCENT" "$frame" "$RESET" "$msg" > "$SPIN_OUT"
-            sleep 0.08
-        done
-    done
-    rc=0; wait "$pid" || rc=$?
-    if [ "$rc" -eq 0 ]; then
-        printf "\r%s✓%s %s\n" "$ACCENT" "$RESET" "$msg" > "$SPIN_OUT"
-    else
-        printf "\r%s✗%s %s\n" "$ACCENT" "$RESET" "$msg" > "$SPIN_OUT"
-        if [ -s "$log" ]; then cat "$log" >&2
-        else printf "  (the command produced no output — re-run with PLYM_VERBOSE=1 for live logs)\n" >&2; fi
-    fi
-    rm -f "$log"
-    return "$rc"
-}
-
 install_cli() {
     PATH_NOTE=""
     CLI_TARGET="/usr/local/bin/plym"
-    if [ -w "$(dirname "$CLI_TARGET")" ] || [ "$(id -u)" = 0 ]; then
-        cp "$(pwd)/bin/plym" "$CLI_TARGET" && chmod +x "$CLI_TARGET"
-        CLI_INSTALLED_AT="$CLI_TARGET"
-    else
+    CLI_DIR="/usr/local/bin"
+    if [ ! -w "$CLI_DIR" ] && [ "$(id -u)" != 0 ]; then
         mkdir -p "$HOME/.local/bin"
-        CLI_TARGET="$HOME/.local/bin/plym"
-        cp "$(pwd)/bin/plym" "$CLI_TARGET" && chmod +x "$CLI_TARGET"
-        CLI_INSTALLED_AT="$CLI_TARGET"
+        CLI_DIR="$HOME/.local/bin"
+        CLI_TARGET="$CLI_DIR/plym"
         case ":$PATH:" in
             *":$HOME/.local/bin:"*) : ;;
             *) PATH_NOTE="  ${DIM}Add this to your shell profile to use 'plym' globally:${RESET}
@@ -79,16 +48,10 @@ install_cli() {
 " ;;
         esac
     fi
-}
-
-port_in_use() {
-    if command -v lsof >/dev/null 2>&1; then
-        lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
-    elif command -v nc >/dev/null 2>&1; then
-        nc -z 127.0.0.1 "$1" >/dev/null 2>&1
-    else
-        return 1
-    fi
+    # The CLI is two files: the entrypoint and its shared library. Install them together.
+    cp "$(pwd)/bin/plym" "$CLI_DIR/plym" && chmod +x "$CLI_DIR/plym"
+    cp "$(pwd)/bin/plym-lib.sh" "$CLI_DIR/plym-lib.sh" && chmod +x "$CLI_DIR/plym-lib.sh"
+    CLI_INSTALLED_AT="$CLI_TARGET"
 }
 
 project_exists() {
@@ -103,7 +66,7 @@ project_exists() {
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        -v|--verbose) VERBOSE=1; shift ;;
+        -v|--verbose) VERBOSE=1; export PLYM_VERBOSE=1; shift ;;
         --) shift; break ;;
         -*) fail "Unknown option: $1 (supported: --verbose)" ;;
         *) break ;;
@@ -144,9 +107,13 @@ fi
 
 [ -e "$INSTALL_DIR" ] && fail "Directory '$INSTALL_DIR' already exists. Remove it or set PLYM_DIR=somewhere-else"
 
-spin "Fetching plym" git clone --quiet --depth 1 "$REPO_URL" "$INSTALL_DIR" \
-    || fail "Could not clone $REPO_URL (see output above)."
+say "Fetching plym from $REPO_URL"
+git clone --depth 1 "$REPO_URL" "$INSTALL_DIR" || fail "Could not clone $REPO_URL — see the git output above."
 cd "$INSTALL_DIR"
+
+# From here on, use the shared library (identical to the plym CLI's helpers).
+. "$(pwd)/bin/plym-lib.sh"
+HEALTH_TIMEOUT_SECONDS=120   # first boot pulls images and runs migrations — give it room
 
 install_cli
 PLYM_HOME="${PLYM_CONFIG_HOME:-$HOME/.config/plym}"
@@ -182,51 +149,30 @@ cp config.yaml.example config.yaml
 sed -i.bak "s|^name:.*|name: $NAME|" config.yaml
 rm -f config.yaml.bak
 
+# Admin bundle lives in a bind-mounted ./admin dir, populated here before the stack starts.
+# A miss is non-fatal (the app runs without admin until 'plym admin update' succeeds) and loud.
+ADMIN_VERSION=$(grep '^PLYM_ADMIN_VERSION=' .env 2>/dev/null | cut -d= -f2- | head -1)
+mkdir -p admin
+fetch_admin "$ADMIN_VERSION" "$(pwd)/admin" || true
+
 spin "Building images — first run takes about a minute" docker compose up -d --build \
     || fail "docker compose failed (see message above)."
 
-wait_for_app() {
-    tries=0
-    until curl -fsS $BASE_URL/health >/dev/null 2>&1; do
-        tries=$((tries + 1))
-        [ "$tries" -gt 120 ] && { docker compose logs api 2>&1 | tail -20; return 1; }
-        sleep 1
-    done
-}
-spin "Starting plym" wait_for_app \
-    || fail "App did not come up within 120 seconds (last log lines above)."
-
-api_call() {
-    method="$1"; path="$2"; shift 2
-    RESP=$(curl -sS -w '\n%{http_code}' -X "$method" "$BASE_URL$path" "$@" 2>&1)
-    CODE=$(printf '%s\n' "$RESP" | tail -n1)
-    BODY=$(printf '%s\n' "$RESP" | sed '$d')
-}
-
-api_ok() {
-    case "$CODE" in 2*) return 0 ;; *) return 1 ;; esac
-}
-
-show_request_error() {
-    case "${CODE:-}" in
-        ""|000) echo "  could not reach $BASE_URL — is the api container running?" >&2 ;;
-        *)      echo "  server returned HTTP $CODE" >&2 ;;
-    esac
-    [ -n "$BODY" ] && printf '%s\n' "$BODY" | sed 's/^/  /' >&2
-    return 0
-}
+spin "Starting plym" wait_for_health \
+    || fail "App did not come up (see the api logs above)."
 
 seed_welcome() {
-    api_call POST /api/auth/login \
+    http POST "$BASE_URL/api/auth/login" \
         -H 'Content-Type: application/json' \
-        -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}"
-    token=$(printf '%s' "$BODY" | grep -o '"access_token":"[^"]*"' | sed 's/^"access_token":"//;s/"$//')
-    [ -z "$token" ] && {
-        echo "Login failed for $ADMIN_EMAIL." >&2
-        show_request_error
-        echo "  A leftover database volume may still hold an old password — run 'docker compose down -v' and reinstall." >&2
-        return 1
-    }
+        -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}" || {
+            printf 'Login failed for %s (HTTP %s):\n' "$ADMIN_EMAIL" "$HTTP_CODE"
+            [ -n "$HTTP_BODY" ] && printf '%s\n' "$HTTP_BODY"
+            printf '\nA leftover database volume may still hold an old password — run "docker compose down -v" and reinstall.\n\n'
+            dump_service api
+            return 1
+        }
+    token=$(printf '%s' "$HTTP_BODY" | grep -o '"access_token":"[^"]*"' | sed 's/^"access_token":"//;s/"$//')
+    [ -n "$token" ] || { printf 'Login returned no access token:\n%s\n' "$HTTP_BODY"; return 1; }
 
     excerpt="plym is now live on your server. Check out this article to help you complete your setup."
     exec_err=$(mktemp)
@@ -240,36 +186,31 @@ print(json.dumps({"title": f"Hello from {name}", "slug": "hello", "content": sys
 ' "$NAME" "$excerpt" 2>"$exec_err"
     )
     if [ -z "$payload" ]; then
-        echo "Could not build the welcome post — 'docker compose exec api' failed:" >&2
-        [ -s "$exec_err" ] && sed 's/^/  /' "$exec_err" >&2
+        printf "Could not build the welcome post — 'docker compose exec api' failed:\n"
+        [ -s "$exec_err" ] && cat "$exec_err"
         rm -f "$exec_err"
         return 1
     fi
     rm -f "$exec_err"
 
-    api_call POST /api/posts \
+    http POST "$BASE_URL/api/posts" \
         -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
-        -d "$payload"
-    post_id=$(printf '%s' "$BODY" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
-    [ -z "$post_id" ] && {
-        echo "Could not create the welcome post." >&2
-        show_request_error
-        return 1
-    }
+        -d "$payload" || {
+            printf 'Could not create the welcome post (HTTP %s):\n%s\n' "$HTTP_CODE" "$HTTP_BODY"
+            return 1
+        }
+    post_id=$(printf '%s' "$HTTP_BODY" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
+    [ -n "$post_id" ] || { printf 'Welcome post had no id:\n%s\n' "$HTTP_BODY"; return 1; }
 
-    api_call PATCH "/api/posts/$post_id" \
+    http PATCH "$BASE_URL/api/posts/$post_id" \
         -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
-        -d '{"status":"published"}'
-    api_ok || {
-        echo "Publishing the post failed (PATCH /api/posts/$post_id)." >&2
-        show_request_error
-        return 1
-    }
+        -d '{"status":"published"}' || {
+            printf 'Publishing the post failed (HTTP %s):\n%s\n' "$HTTP_CODE" "$HTTP_BODY"
+            return 1
+        }
 
-    api_call POST "/api/posts/$post_id/refresh" -H "Authorization: Bearer $token"
-    api_ok || {
-        echo "Rendering the post failed (POST /api/posts/$post_id/refresh)." >&2
-        show_request_error
+    http POST "$BASE_URL/api/posts/$post_id/refresh" -H "Authorization: Bearer $token" || {
+        printf 'Rendering the post failed (HTTP %s):\n%s\n' "$HTTP_CODE" "$HTTP_BODY"
         return 1
     }
 }
@@ -308,6 +249,6 @@ ${PATH_NOTE}    ${BOLD}plym list${RESET}                      — show every blo
     ${BOLD}plym template install <name>${RESET}   — fetch a template from plym-io/plym-templates
     ${BOLD}plym rebuild${RESET}                   — restart the api and re-render every published post
 
-  ${DIM}docker compose logs -f api  •  docker compose down${RESET}
+  ${DIM}plym --verbose update  •  docker compose logs -f api  •  docker compose down${RESET}
 
 EOF

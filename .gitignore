@@ -4,6 +4,7 @@ __pycache__/
 .env
 config.yaml
 storage/
+admin/
 .DS_Store
 .ruff_cache/
 .mypy_cache/

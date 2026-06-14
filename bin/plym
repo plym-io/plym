@@ -10,44 +10,19 @@ VERBOSE="${PLYM_VERBOSE:-0}"
 PLYM_HOME="${PLYM_CONFIG_HOME:-$HOME/.config/plym}"
 ACTIVE_FILE="$PLYM_HOME/active"
 
-BOLD=$(printf '\033[1m')
-DIM=$(printf '\033[2m')
-ACCENT=$(printf '\033[38;5;208m')
-GREEN=$(printf '\033[38;5;40m')
-RESET=$(printf '\033[0m')
-
-say()  { printf "%s→%s %s\n" "$ACCENT" "$RESET" "$1"; }
-note() { printf "%s%s%s\n" "$DIM" "$1" "$RESET"; }
-fail() { printf "%s✗%s %s\n" "$ACCENT" "$RESET" "$1" >&2; exit "${2:-1}"; }
-
-[ -e /dev/tty ] && SPIN_OUT=/dev/tty || SPIN_OUT=/dev/stdout
-spin() {
-    msg="$1"; shift
-    if [ "$VERBOSE" = "1" ]; then
-        printf "%s→%s %s\n" "$ACCENT" "$RESET" "$msg"
-        "$@"
-        return $?
-    fi
-    log=$(mktemp)
-    "$@" >"$log" 2>&1 &
-    pid=$!
-    while kill -0 "$pid" 2>/dev/null; do
-        for frame in ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏; do
-            kill -0 "$pid" 2>/dev/null || break
-            printf "\r%s%s%s %s " "$ACCENT" "$frame" "$RESET" "$msg" > "$SPIN_OUT"
-            sleep 0.08
-        done
-    done
-    rc=0; wait "$pid" || rc=$?
-    if [ "$rc" -eq 0 ]; then
-        printf "\r%s✓%s %s\n" "$ACCENT" "$RESET" "$msg" > "$SPIN_OUT"
-    else
-        printf "\r%s✗%s %s\n" "$ACCENT" "$RESET" "$msg" > "$SPIN_OUT"
-        cat "$log" >&2
-    fi
-    rm -f "$log"
-    return "$rc"
-}
+# Load the shared helper library: colors, say/note/warn/fail, box, spin, retry, http,
+# wait_for_health, port_in_use, fetch_admin and the docker-compose introspection helpers.
+# It lives next to this script; both files are installed together.
+_self="$0"
+[ -L "$_self" ] && _self=$(readlink -f "$_self" 2>/dev/null || python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$_self")
+_LIBDIR=$(CDPATH= cd -- "$(dirname -- "$_self")" 2>/dev/null && pwd)
+if [ -r "$_LIBDIR/plym-lib.sh" ]; then
+    . "$_LIBDIR/plym-lib.sh"
+else
+    printf '\033[38;5;208m✗\033[0m plym-lib.sh is missing next to %s — the plym install is incomplete.\n' "$_self" >&2
+    printf '  Copy both files together: cp <plym-checkout>/bin/plym <plym-checkout>/bin/plym-lib.sh "%s"/\n' "$_LIBDIR" >&2
+    exit 1
+fi
 
 abspath() {
     if readlink -f "$1" >/dev/null 2>&1; then
@@ -113,6 +88,11 @@ enter_project() {
     BASE_URL="http://localhost:$PORT"
     PROJECT_LABEL=$(grep '^COMPOSE_PROJECT_NAME=' .env 2>/dev/null | cut -d= -f2- | head -1)
     [ -n "$PROJECT_LABEL" ] || PROJECT_LABEL=$(basename "$PROJECT_ROOT")
+    # Admin bundle lives in a bind-mounted dir (not baked into the image), so a failed fetch can
+    # reuse the previous one. Ensure it exists and is owned by us before any `docker compose up`.
+    ADMIN_DIR="$PROJECT_ROOT/admin"
+    ADMIN_VERSION=$(grep '^PLYM_ADMIN_VERSION=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    mkdir -p "$ADMIN_DIR"
 }
 
 usage() {
@@ -128,21 +108,24 @@ Usage:
   plym template install <name> [ref]   Switch to a template. Uses the local copy in plym/templates/
                                        if present, else downloads it. Pass --update to force a fresh
                                        download. Default ref: main. Refs are a branch, tag, or SHA.
-  plym admin update                    Refetch the admin app release and rebuild the api image.
-  plym update                          Pull the latest plym, rebuild (api deps + admin), reload caddy,
-                                       run migrations, and re-render. Updates the whole stack.
-  plym reinstall [--yes] [--verbose]   Wipe the stack AND its database volume, then reinstall from
+  plym admin update                    Refetch the admin bundle into ./admin and restart the api. If the
+                                       fetch fails the existing admin bundle is kept (never removed).
+  plym update                          Pull the latest plym, rebuild the api image, refetch the admin
+                                       bundle, reload caddy, and re-render. Updates the whole stack.
+  plym reinstall [--yes]               Wipe the stack AND its database volume, then reinstall from
                                        source. Destructive: deletes all posts, regenerates the admin
-                                       password. Asks for confirmation unless --yes. --verbose streams
-                                       the full install logs instead of a spinner.
+                                       password. Asks for confirmation unless --yes.
   plym reload                          Restart the api to apply config.yaml. No re-render — use for
                                        runtime-only changes (http_cache, pagination, robots, media).
   plym rebuild                         Restart the api and re-render every published post. Use when a
                                        change affects rendered HTML (template, prism, reading, logo).
 
-Target selection (template/rebuild):
-  -C <dir>, --project <dir>            Operate on the blog in <dir>.
-  PLYM_DIR=<dir>                       Same, via environment.
+Global options (accepted before the command, e.g. plym --verbose update):
+  -v, --verbose                       Stream every underlying log live — docker build/compose, the api
+                                      container logs, HTTP requests/responses, and proxy reloads.
+                                      Errors and full tracebacks are shown either way; --verbose adds
+                                      the live stream. Same as PLYM_VERBOSE=1.
+  -C <dir>, --project <dir>           Operate on the blog in <dir> (also PLYM_DIR=<dir>).
   Otherwise: the current blog dir if you are inside one, else the active blog,
   else the sole blog if there is only one.
 
@@ -150,19 +133,8 @@ Environment overrides:
   PLYM_TEMPLATE_REPO_OWNER (default: plym-io)
   PLYM_TEMPLATE_REPO_NAME  (default: plym-templates)
   PLYM_HEALTH_TIMEOUT_SECONDS (default: 60)
-  PLYM_VERBOSE=1           Stream full command output instead of a spinner.
+  PLYM_VERBOSE=1           Same as --verbose.
 EOF
-}
-
-wait_for_health() {
-    tries=0
-    until curl -fsS $BASE_URL/health >/dev/null 2>&1; do
-        tries=$((tries + 1))
-        if [ "$tries" -gt "$HEALTH_TIMEOUT_SECONDS" ]; then
-            fail "API did not come up within ${HEALTH_TIMEOUT_SECONDS}s"
-        fi
-        sleep 1
-    done
 }
 
 load_creds() {
@@ -173,50 +145,88 @@ load_creds() {
         fail "Could not read PLYM_SUPERUSER_EMAIL/PASSWORD from .env"
 }
 
-retry() {
-    attempts="$1"; shift
-    n=1
-    while :; do
-        "$@" && return 0
-        [ "$n" -ge "$attempts" ] && return 1
-        n=$((n + 1))
-        sleep 1
-    done
-}
-
 attempt_login() {
-    TOKEN=$(curl -fsS -X POST $BASE_URL/api/auth/login \
+    http POST "$BASE_URL/api/auth/login" \
         -H 'Content-Type: application/json' \
-        -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" \
-        | grep -o '"access_token":"[^"]*"' | sed 's/^"access_token":"//;s/"$//')
+        -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" || return 1
+    TOKEN=$(printf '%s' "$HTTP_BODY" | grep -o '"access_token":"[^"]*"' | sed 's/^"access_token":"//;s/"$//')
     [ -n "$TOKEN" ]
 }
 
 login() {
     load_creds
-    retry 5 attempt_login || fail "Login failed for $EMAIL"
+    retry 5 attempt_login && return 0
+    # Every attempt failed. Show what actually came back — the HTTP status and body, or the raw
+    # transport error (e.g. curl 56 when the worker died mid-request) — plus the api container's
+    # state and logs, so the real reason is visible instead of a bare "Login failed".
+    printf 'Login failed for %s after 5 attempts.\n' "$EMAIL"
+    printf 'Last response: HTTP %s\n' "$HTTP_CODE"
+    [ -n "$HTTP_BODY" ] && printf '%s\n' "$HTTP_BODY"
+    printf '\n'
+    dump_service api
+    dump_unhealthy
+    return 1
 }
 
 refresh_all_posts() {
-    login
-    ids=$(curl -fsS "$BASE_URL/api/posts?include_drafts=true&page_size=200" \
-            -H "Authorization: Bearer $TOKEN" \
-            | python3 -c "import sys,json;print(' '.join(str(p['id']) for p in json.load(sys.stdin)['items']))")
-    [ -n "$ids" ] || return 0
-    for id in $ids; do
-        curl -fsS -o /dev/null -X POST "$BASE_URL/api/posts/$id/refresh" \
-             -H "Authorization: Bearer $TOKEN"
+    login || return 1
+    ids=""
+    page=1
+    while :; do
+        http GET "$BASE_URL/api/posts?include_drafts=true&page=$page&page_size=200" \
+            -H "Authorization: Bearer $TOKEN" || {
+                printf 'Could not list posts to re-render (page %s, HTTP %s):\n%s\n' "$page" "$HTTP_CODE" "$HTTP_BODY"
+                return 1
+            }
+        page_ids=$(printf '%s' "$HTTP_BODY" | python3 -c "import sys,json;print(' '.join(str(p['id']) for p in json.load(sys.stdin)['items']))" 2>/dev/null)
+        [ -n "$page_ids" ] || break
+        ids="$ids $page_ids"
+        count=$(printf '%s' "$page_ids" | wc -w | tr -d ' ')
+        [ "$count" -lt 200 ] && break
+        page=$((page + 1))
     done
+    for id in $ids; do
+        http POST "$BASE_URL/api/posts/$id/refresh" -H "Authorization: Bearer $TOKEN" >/dev/null || {
+            printf 'Re-render failed for post %s (HTTP %s):\n%s\n' "$id" "$HTTP_CODE" "$HTTP_BODY"
+            return 1
+        }
+    done
+    return 0
 }
 
+# (re)start the api so it picks up mounted code, config.yaml and the admin bundle, then health-gate.
+# `up -d` first guarantees the whole stack (db/caddy/api) is running and recreates api/caddy when
+# their image or env changed; the explicit restart re-reads the bind mounts without an image build.
 restart_api() {
-    docker compose restart api >/dev/null
+    docker compose up -d
+    docker compose restart api
     wait_for_health
 }
 
 restart_caddy() {
-    docker compose restart caddy >/dev/null
+    docker compose restart caddy
     wait_for_health
+}
+
+# apply [--build] [--admin] [--caddy] [--render] — bring the stack into line after a change.
+# Each step is spinned (so it streams under --verbose and boxes its output on failure); the api
+# is always restarted and health-gated. This single pipeline replaces the per-command sequences.
+apply() {
+    _build=0; _admin=0; _caddy=0; _render=0
+    for _f in "$@"; do
+        case "$_f" in
+            --build)  _build=1 ;;
+            --admin)  _admin=1 ;;
+            --caddy)  _caddy=1 ;;
+            --render) _render=1 ;;
+        esac
+    done
+    if [ "$_admin" = 1 ]; then spin "Fetching admin bundle ($ADMIN_VERSION)" fetch_admin "$ADMIN_VERSION" "$ADMIN_DIR" || return 1; fi
+    if [ "$_build" = 1 ]; then spin "Rebuilding api image" docker compose build api || return 1; fi
+    spin "Restarting api" restart_api || return 1
+    if [ "$_caddy" = 1 ]; then spin "Reloading caddy" restart_caddy || return 1; fi
+    if [ "$_render" = 1 ]; then spin "Re-rendering published posts" refresh_all_posts || return 1; fi
+    return 0
 }
 
 normalize_prefix() {
@@ -274,16 +284,6 @@ PROXY_HEADERS='        proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;'
 
-port_in_use() {
-    if command -v lsof >/dev/null 2>&1; then
-        lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
-    elif command -v nc >/dev/null 2>&1; then
-        nc -z 127.0.0.1 "$1" >/dev/null 2>&1
-    else
-        return 1
-    fi
-}
-
 set_env_key() {
     if grep -q "^$1=" .env 2>/dev/null; then
         sed -i.bak "s|^$1=.*|$1=$2|" .env && rm -f .env.bak
@@ -305,8 +305,9 @@ set_config_key() {
 }
 
 pkg_install() {
+    _q="-qq"; [ "$VERBOSE" = "1" ] && _q=""
     if command -v apt-get >/dev/null 2>&1; then
-        $SUDO apt-get update -qq && $SUDO apt-get install -y -qq "$@"
+        $SUDO apt-get update $_q && $SUDO apt-get install -y $_q "$@"
     elif command -v dnf >/dev/null 2>&1; then
         $SUDO dnf install -y "$@"
     elif command -v yum >/dev/null 2>&1; then
@@ -505,7 +506,8 @@ install_caddy() {
             | $SUDO gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
         curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
             | $SUDO tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
-        $SUDO apt-get update -qq && $SUDO apt-get install -y -qq caddy
+        _q="-qq"; [ "$VERBOSE" = "1" ] && _q=""
+        $SUDO apt-get update $_q && $SUDO apt-get install -y $_q caddy
     else
         pkg_install caddy
     fi
@@ -568,13 +570,6 @@ EOF
     note "More: $DOCS_URL"
 }
 
-apply_site_settings() {
-    docker compose up -d
-    docker compose restart api
-    wait_for_health
-    refresh_all_posts
-}
-
 cmd_set_url() {
     URL_ARG=""
     PROXY=""
@@ -583,6 +578,7 @@ cmd_set_url() {
             --nginx)   PROXY=nginx; shift ;;
             --caddy)   PROXY=caddy; shift ;;
             --traefik) PROXY=traefik; shift ;;
+            -v|--verbose) VERBOSE=1; export PLYM_VERBOSE=1; shift ;;
             -*) fail "Unknown option: $1" ;;
             *) URL_ARG="$1"; shift ;;
         esac
@@ -639,7 +635,7 @@ cmd_set_url() {
 
     setup_$PROXY
 
-    spin "Re-rendering with the new address" apply_site_settings
+    apply --render
 
     printf "\n  %s%s%s now serves %s%s%s\n" "$GREEN" "$PUBLIC_URL" "$RESET" "$BOLD" "$PROJECT_LABEL" "$RESET"
     note "  Admin: https://$HOST$BLOG_PREFIX/plym-admin"
@@ -727,6 +723,7 @@ cmd_template_install() {
     while [ $# -gt 0 ]; do
         case "$1" in
             --update|-u) update=1 ;;
+            -v|--verbose) VERBOSE=1; export PLYM_VERBOSE=1 ;;
             -*) fail "Unknown option: $1" ;;
             *)
                 if [ -z "$name" ]; then name="$1"
@@ -745,15 +742,14 @@ cmd_template_install() {
         spin "Downloading $name from $REPO_OWNER/$REPO_NAME@$ref" fetch_template_remote "$name" "$ref"
     fi
     set_active_template "$name"
-    spin "Restarting api" restart_api
-    spin "Re-rendering published posts" refresh_all_posts
+    apply --render
     say "Template '$name' is live."
 }
 
 cmd_reload() {
     enter_project
     note "Reloading $PROJECT_LABEL config (:$PORT)"
-    spin "Restarting api" restart_api
+    apply
     warn_prefix_drift
     say "Config reloaded."
 }
@@ -761,16 +757,9 @@ cmd_reload() {
 cmd_rebuild() {
     enter_project
     note "Rebuilding $PROJECT_LABEL (:$PORT)"
-    spin "Restarting api" restart_api
-    spin "Re-rendering published posts" refresh_all_posts
+    apply --render
     warn_prefix_drift
     say "Rebuild complete."
-}
-
-rebuild_with_fresh_admin() {
-    PLYM_ADMIN_BUST=$(date +%s) docker compose build api
-    docker compose up -d
-    wait_for_health
 }
 
 sync_cli() {
@@ -778,22 +767,25 @@ sync_cli() {
     [ -n "$installed" ] && [ "$installed" != "$PROJECT_ROOT/bin/plym" ] || return 0
     dir=$(dirname "$installed")
     if [ ! -w "$dir" ]; then
-        note "CLI at $installed isn't writable — refresh it with: cp $PROJECT_ROOT/bin/plym $installed"
+        note "CLI at $installed isn't writable — refresh it with: cp $PROJECT_ROOT/bin/plym $PROJECT_ROOT/bin/plym-lib.sh $dir/"
         return 0
     fi
-    tmp=$(mktemp "$dir/.plym.XXXXXX" 2>/dev/null) || return 0
-    if cp "$PROJECT_ROOT/bin/plym" "$tmp" && chmod +x "$tmp"; then
-        mv -f "$tmp" "$installed"
-    else
-        rm -f "$tmp"
-    fi
+    # The CLI is two files (plym + plym-lib.sh); keep them in lockstep so a refreshed plym never
+    # sources a stale lib.
+    for f in plym plym-lib.sh; do
+        tmp=$(mktemp "$dir/.plym.XXXXXX" 2>/dev/null) || return 0
+        if cp "$PROJECT_ROOT/bin/$f" "$tmp" && chmod +x "$tmp"; then
+            mv -f "$tmp" "$dir/$f"
+        else
+            rm -f "$tmp"
+        fi
+    done
 }
 
 cmd_admin_update() {
     enter_project
-    version=$(grep '^PLYM_ADMIN_VERSION=' .env 2>/dev/null | cut -d= -f2- | head -1)
-    note "Refetching the admin app (${version:-no PLYM_ADMIN_VERSION set}) for $PROJECT_LABEL"
-    spin "Rebuilding api with a fresh admin bundle" rebuild_with_fresh_admin
+    note "Refetching the admin app (${ADMIN_VERSION:-no PLYM_ADMIN_VERSION set}) for $PROJECT_LABEL"
+    apply --admin
     say "Admin updated."
 }
 
@@ -805,12 +797,10 @@ cmd_update() {
     spin "Pulling latest plym" git pull --ff-only
     after=$(git rev-parse HEAD)
     sync_cli
-    spin "Rebuilding api with a fresh admin bundle" rebuild_with_fresh_admin
-    spin "Reloading caddy" restart_caddy
-    spin "Re-rendering published posts" refresh_all_posts
+    apply --build --admin --caddy --render
     warn_prefix_drift
     if [ "$before" = "$after" ]; then
-        say "Already on the latest commit — admin bundle refreshed."
+        say "Already on the latest commit — image, admin bundle and renders refreshed."
     else
         say "Updated $(printf '%s' "$before" | cut -c1-7) → $(printf '%s' "$after" | cut -c1-7)."
     fi
@@ -819,11 +809,10 @@ cmd_update() {
 cmd_reinstall() {
     enter_project
     yes=""
-    verbose=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --yes|-y) yes=1 ;;
-            --verbose|-v) verbose=1 ;;
+            -v|--verbose) VERBOSE=1; export PLYM_VERBOSE=1 ;;
             -*) fail "Unknown option: $1" ;;
         esac
         shift
@@ -844,8 +833,6 @@ cmd_reinstall() {
         [ "$confirm" = "$name" ] || fail "Did not match — aborted."
     fi
 
-    [ -n "$verbose" ] && { VERBOSE=1; export PLYM_VERBOSE=1; }
-
     spin "Removing stack and volumes" docker compose down -v
     cd "$parent"
     rm -rf "$dir"
@@ -860,6 +847,8 @@ while [ $# -gt 0 ]; do
         -C|--project)
             [ -n "$2" ] || fail "$1 requires a directory"
             OPT_PROJECT="$2"; shift 2 ;;
+        -v|--verbose)
+            VERBOSE=1; export PLYM_VERBOSE=1; shift ;;
         --) shift; break ;;
         *) break ;;
     esac
