@@ -3,9 +3,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from plym.exceptions.posts import SlugConflictError
+from plym.instrumentation.tracer import Traced
 
 
-class PostRepository:
+class PostRepository(Traced):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 

@@ -6,11 +6,11 @@ from pydantic import Field
 from plym.models.common import ORMModel
 
 
-class LogEntry(ORMModel):
+class AuditEntry(ORMModel):
     id: int
     event: str
     actor_id: int | None = None
     target: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
-    audit: bool
+    request_id: str | None = None
     created_at: datetime

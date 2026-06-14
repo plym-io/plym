@@ -2,13 +2,14 @@ from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from plym.audit import audit
 from plym.exceptions.auth import (
     InactiveUserError,
     InvalidCredentialsError,
     TokenInvalidError,
 )
 from plym.exceptions.users import EmailAlreadyExistsError, UserNotFoundError
-from plym.instrumentation.decorators import instrumented
+from plym.instrumentation.tracer import Traced
 from plym.models.token import TokenPair
 from plym.repository.token_repository import RefreshTokenRepository
 from plym.repository.user_repository import UserRepository
@@ -16,7 +17,7 @@ from plym.service.password_service import PasswordService
 from plym.service.token_service import TokenService
 
 
-class AuthService:
+class AuthService(Traced):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
         self._users = UserRepository(session)
@@ -24,7 +25,7 @@ class AuthService:
         self._passwords = PasswordService()
         self._jwt = TokenService()
 
-    @instrumented("users.create", audit=True)
+    @audit("users.create", target=lambda p, r: r)
     async def register(
         self,
         *,
@@ -45,7 +46,7 @@ class AuthService:
         await self._session.commit()
         return user_id
 
-    @instrumented("auth.login", audit=True)
+    @audit("auth.login", target=lambda p, r: p.get("email"))
     async def login(self, email: str, password: str) -> TokenPair:
         user = await self._users.get_by_email(email)
         if not user:
@@ -58,7 +59,6 @@ class AuthService:
             await self._users.update_password(user["id"], self._passwords.hash(password))
         return await self._issue_pair(user["id"], user["role"])
 
-    @instrumented("auth.refresh")
     async def refresh(self, raw_token: str) -> TokenPair:
         token_hash = self._jwt.hash_refresh(raw_token)
         record = await self._tokens.get_by_hash(token_hash)
@@ -75,14 +75,14 @@ class AuthService:
             raise InactiveUserError()
         return await self._issue_pair(user["id"], user["role"])
 
-    @instrumented("auth.logout", audit=True)
+    @audit("auth.logout")
     async def logout(self, raw_token: str) -> None:
         record = await self._tokens.get_by_hash(self._jwt.hash_refresh(raw_token))
         if record:
             await self._tokens.delete_by_id(record["id"])
             await self._session.commit()
 
-    @instrumented("auth.password_change", audit=True)
+    @audit("auth.password_change", target=lambda p, r: p["user_id"])
     async def change_password(self, user_id: int, old: str, new: str) -> None:
         user = await self._users.get_by_id(user_id)
         if not user:
@@ -93,7 +93,7 @@ class AuthService:
         await self._tokens.delete_all_for_user(user_id)
         await self._session.commit()
 
-    @instrumented("auth.admin_reset_password", audit=True)
+    @audit("auth.admin_reset_password", target=lambda p, r: p["user_id"])
     async def admin_reset_password(self, user_id: int, new: str) -> None:
         user = await self._users.get_by_id(user_id)
         if not user:

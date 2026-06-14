@@ -1,11 +1,12 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from plym.exceptions.users import UserNotFoundError
+from plym.instrumentation.tracer import Traced
 from plym.models.user import User
 from plym.repository.user_repository import UserRepository
 
 
-class UserService:
+class UserService(Traced):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
         self._users = UserRepository(session)

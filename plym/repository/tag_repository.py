@@ -1,8 +1,10 @@
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from plym.instrumentation.tracer import Traced
 
-class TagRepository:
+
+class TagRepository(Traced):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 

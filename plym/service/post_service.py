@@ -1,8 +1,9 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from plym.audit import audit
 from plym.config.site import SiteConfig
 from plym.exceptions.posts import PostNotFoundError, SlugConflictError
-from plym.instrumentation.decorators import instrumented
+from plym.instrumentation.tracer import Traced
 from plym.models.common import PostStatus
 from plym.models.post import Post, PostCreate, PostListItem, PostUpdate
 from plym.models.tag import Tag
@@ -12,7 +13,7 @@ from plym.repository.tag_repository import TagRepository
 from plym.service.post_pipeline import PostPipeline
 
 
-class PostService:
+class PostService(Traced):
     def __init__(self, session: AsyncSession, site: SiteConfig, css: str, prism_js: str) -> None:
         self._session = session
         self._site = site
@@ -52,7 +53,7 @@ class PostService:
             ids.append(tag_id)
         return ids
 
-    @instrumented("posts.create", audit=True)
+    @audit("posts.create", target=lambda p, r: r.id)
     async def create(self, author_id: int, payload: PostCreate) -> Post:
         if await self._posts.slug_exists(payload.slug):
             raise SlugConflictError(payload.slug)
@@ -75,7 +76,7 @@ class PostService:
         self._pipeline.invalidate_index()
         return await self.get(post_id)
 
-    @instrumented("posts.update", audit=True)
+    @audit("posts.update", target=lambda p, r: p["post_id"])
     async def update(self, post_id: int, payload: PostUpdate) -> Post:
         existing = await self._posts.get_by_id(post_id)
         if not existing:
@@ -166,7 +167,7 @@ class PostService:
         total = await self._posts.count_all(status=status_value, search=search)
         return items, total
 
-    @instrumented("posts.refresh", audit=True)
+    @audit("posts.refresh", target=lambda p, r: p["post_id"])
     async def refresh(self, post_id: int) -> Post:
         post = await self.get(post_id)
         result = await self._pipeline.render_and_persist(
@@ -187,7 +188,7 @@ class PostService:
         self._pipeline.invalidate_index()
         return await self.get(post_id)
 
-    @instrumented("posts.delete", audit=True)
+    @audit("posts.delete", target=lambda p, r: p["post_id"])
     async def delete(self, post_id: int) -> None:
         post = await self.get(post_id)
         await self._posts.delete(post_id)

@@ -1,8 +1,9 @@
+from opentelemetry import trace
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from plym.instrumentation.logger import set_actor
+from plym.instrumentation.context import set_actor
 from plym.service.token_service import TokenService
 
 
@@ -22,6 +23,8 @@ class ActorMiddleware(BaseHTTPMiddleware):
             except Exception:
                 actor = None
         set_actor(actor)
+        if actor is not None:
+            trace.get_current_span().set_attribute("plym.actor_id", actor)
         try:
             return await call_next(request)
         finally:

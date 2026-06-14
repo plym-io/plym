@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     upload_max_bytes: int = 10 * 1024 * 1024
     config_path: Path = Path("config.yaml")
 
+    service_name: str = "plym"
+    trace_exporter: str = "console"
+    otlp_endpoint: str = "http://localhost:4317"
+    trace_sample: float = 1.0
+    trace_slow_ms: int = 200
+    trace_args: bool = False
+    trace_color: bool | None = None
+
     base_dir: Path = Path(__file__).resolve().parent.parent
     storage_dir: Path = Path("storage")
     uploads_dir: Path = Path("storage/_uploads")

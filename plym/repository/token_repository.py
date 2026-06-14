@@ -3,8 +3,10 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from plym.instrumentation.tracer import Traced
 
-class RefreshTokenRepository:
+
+class RefreshTokenRepository(Traced):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 

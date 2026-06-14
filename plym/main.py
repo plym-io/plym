@@ -5,14 +5,15 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
 
+from plym.api.audit_router import router as audit_router
 from plym.api.auth_router import router as auth_router
 from plym.api.blog_router import index_router, serve_index
 from plym.api.blog_router import posts_router as blog_posts_router
 from plym.api.config_router import router as config_router
-from plym.api.logs_router import router as logs_router
 from plym.api.media_router import router as media_router
 from plym.api.posts_router import router as posts_router
 from plym.api.seo_router import router as seo_router
@@ -22,15 +23,15 @@ from plym.build.pipeline import run_build
 from plym.config.site import load_site_config
 from plym.db.migrate import apply_migrations
 from plym.db.session import dispose_engine
-from plym.instrumentation.log_config import configure_logging
 from plym.instrumentation.middleware import ActorMiddleware
+from plym.instrumentation.telemetry import configure_telemetry
 from plym.render.reconcile import reconcile_generated_files
 from plym.service.backup_service import BackupScheduler
 from plym.service.bootstrap import ensure_superuser
 from plym.service.token_service import TokenService
 from plym.settings import settings
 
-configure_logging()
+configure_telemetry()
 log = logging.getLogger("plym.startup")
 
 
@@ -84,6 +85,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Plym", lifespan=lifespan)
+FastAPIInstrumentor.instrument_app(app)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(ActorMiddleware, jwt=TokenService())
 
@@ -99,7 +101,7 @@ app.include_router(posts_router)
 app.include_router(media_router)
 app.include_router(tags_router)
 app.include_router(config_router)
-app.include_router(logs_router)
+app.include_router(audit_router)
 app.include_router(seo_router)
 app.include_router(index_router)
 

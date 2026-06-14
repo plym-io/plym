@@ -4,8 +4,10 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from plym.instrumentation.tracer import Traced
 
-class LogRepository:
+
+class AuditRepository(Traced):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
@@ -16,13 +18,13 @@ class LogRepository:
         actor_id: int | None,
         target: str | None,
         payload: dict[str, Any],
-        audit: bool,
+        request_id: str | None,
     ) -> None:
         await self._session.execute(
             text(
                 """
-                INSERT INTO public.pl_logs (event, actor_id, target, payload, audit)
-                VALUES (:event, :actor_id, :target, CAST(:payload AS JSONB), :audit)
+                INSERT INTO public.pl_audit (event, actor_id, target, payload, request_id)
+                VALUES (:event, :actor_id, :target, CAST(:payload AS JSONB), :request_id)
                 """
             ),
             {
@@ -30,13 +32,11 @@ class LogRepository:
                 "actor_id": actor_id,
                 "target": target,
                 "payload": json.dumps(payload),
-                "audit": audit,
+                "request_id": request_id,
             },
         )
 
-    def _filters(
-        self, event_prefix: str | None, actor_id: int | None, audit_only: bool
-    ) -> tuple[str, dict]:
+    def _filters(self, event_prefix: str | None, actor_id: int | None) -> tuple[str, dict]:
         conditions: list[str] = []
         params: dict[str, Any] = {}
         if event_prefix:
@@ -45,8 +45,6 @@ class LogRepository:
         if actor_id is not None:
             conditions.append("actor_id = :actor_id")
             params["actor_id"] = actor_id
-        if audit_only:
-            conditions.append("audit = TRUE")
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         return where, params
 
@@ -57,14 +55,13 @@ class LogRepository:
         offset: int,
         event_prefix: str | None = None,
         actor_id: int | None = None,
-        audit_only: bool = False,
     ) -> list[dict]:
-        where, params = self._filters(event_prefix, actor_id, audit_only)
+        where, params = self._filters(event_prefix, actor_id)
         result = await self._session.execute(
             text(
                 f"""
-                SELECT id, event, actor_id, target, payload, audit, created_at
-                FROM public.pl_logs
+                SELECT id, event, actor_id, target, payload, request_id, created_at
+                FROM public.pl_audit
                 {where}
                 ORDER BY created_at DESC, id DESC
                 LIMIT :limit OFFSET :offset
@@ -79,10 +76,9 @@ class LogRepository:
         *,
         event_prefix: str | None = None,
         actor_id: int | None = None,
-        audit_only: bool = False,
     ) -> int:
-        where, params = self._filters(event_prefix, actor_id, audit_only)
+        where, params = self._filters(event_prefix, actor_id)
         result = await self._session.execute(
-            text(f"SELECT COUNT(*) FROM public.pl_logs {where}"), params
+            text(f"SELECT COUNT(*) FROM public.pl_audit {where}"), params
         )
         return int(result.scalar_one())

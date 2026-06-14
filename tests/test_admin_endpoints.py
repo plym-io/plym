@@ -39,17 +39,17 @@ async def test_list_users_returns_paginated(
 
 
 @pytest.mark.asyncio
-async def test_list_logs_requires_admin(client: httpx.AsyncClient) -> None:
-    r = await client.get("/api/logs")
+async def test_list_audit_requires_admin(client: httpx.AsyncClient) -> None:
+    r = await client.get("/api/audit")
     assert r.status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_list_logs_filterable(
+async def test_list_audit_filterable(
     client: httpx.AsyncClient, auth_headers: dict[str, str]
 ) -> None:
     r = await client.get(
-        "/api/logs", headers=auth_headers, params={"event_prefix": "auth", "page_size": 5}
+        "/api/audit", headers=auth_headers, params={"event_prefix": "auth", "page_size": 5}
     )
     assert r.status_code == 200
     body = r.json()
