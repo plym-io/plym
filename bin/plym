@@ -10,17 +10,25 @@ VERBOSE="${PLYM_VERBOSE:-0}"
 PLYM_HOME="${PLYM_CONFIG_HOME:-$HOME/.config/plym}"
 ACTIVE_FILE="$PLYM_HOME/active"
 
-# Load the shared helper library: colors, say/note/warn/fail, box, spin, retry, http,
-# wait_for_health, port_in_use, fetch_admin and the docker-compose introspection helpers.
-# It lives next to this script; both files are installed together.
 _self="$0"
 [ -L "$_self" ] && _self=$(readlink -f "$_self" 2>/dev/null || python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$_self")
 _LIBDIR=$(CDPATH= cd -- "$(dirname -- "$_self")" 2>/dev/null && pwd)
-if [ -r "$_LIBDIR/plym-lib.sh" ]; then
-    . "$_LIBDIR/plym-lib.sh"
+_LIB="$_LIBDIR/plym-lib.sh"
+if [ ! -r "$_LIB" ]; then
+    _active=$(cat "${PLYM_CONFIG_HOME:-$HOME/.config/plym}/active" 2>/dev/null) || _active=""
+    for _cand in "${PLYM_DIR:-}/bin/plym-lib.sh" "$_active/bin/plym-lib.sh" "$(pwd)/bin/plym-lib.sh"; do
+        case "$_cand" in /bin/plym-lib.sh) continue ;; esac   # empty prefix → skip
+        [ -r "$_cand" ] || continue
+        _LIB="$_cand"
+        [ -w "$_LIBDIR" ] && cp "$_cand" "$_LIBDIR/plym-lib.sh" 2>/dev/null && _LIB="$_LIBDIR/plym-lib.sh"
+        break
+    done
+fi
+if [ -r "$_LIB" ]; then
+    . "$_LIB"
 else
-    printf '\033[38;5;208m✗\033[0m plym-lib.sh is missing next to %s — the plym install is incomplete.\n' "$_self" >&2
-    printf '  Copy both files together: cp <plym-checkout>/bin/plym <plym-checkout>/bin/plym-lib.sh "%s"/\n' "$_LIBDIR" >&2
+    printf '\033[38;5;208m✗\033[0m plym-lib.sh not found (looked next to %s, in $PLYM_DIR, the active blog, and ./bin).\n' "$_self" >&2
+    printf '  Reinstall, or copy it manually: cp <plym-checkout>/bin/plym-lib.sh "%s"/\n' "$_LIBDIR" >&2
     exit 1
 fi
 
@@ -156,9 +164,6 @@ attempt_login() {
 login() {
     load_creds
     retry 5 attempt_login && return 0
-    # Every attempt failed. Show what actually came back — the HTTP status and body, or the raw
-    # transport error (e.g. curl 56 when the worker died mid-request) — plus the api container's
-    # state and logs, so the real reason is visible instead of a bare "Login failed".
     printf 'Login failed for %s after 5 attempts.\n' "$EMAIL"
     printf 'Last response: HTTP %s\n' "$HTTP_CODE"
     [ -n "$HTTP_BODY" ] && printf '%s\n' "$HTTP_BODY"
@@ -194,9 +199,6 @@ refresh_all_posts() {
     return 0
 }
 
-# (re)start the api so it picks up mounted code, config.yaml and the admin bundle, then health-gate.
-# `up -d` first guarantees the whole stack (db/caddy/api) is running and recreates api/caddy when
-# their image or env changed; the explicit restart re-reads the bind mounts without an image build.
 restart_api() {
     docker compose up -d
     docker compose restart api
@@ -208,9 +210,6 @@ restart_caddy() {
     wait_for_health
 }
 
-# apply [--build] [--admin] [--caddy] [--render] — bring the stack into line after a change.
-# Each step is spinned (so it streams under --verbose and boxes its output on failure); the api
-# is always restarted and health-gated. This single pipeline replaces the per-command sequences.
 apply() {
     _build=0; _admin=0; _caddy=0; _render=0
     for _f in "$@"; do
@@ -768,8 +767,6 @@ sync_cli() {
         note "CLI at $installed isn't writable — refresh it with: cp $PROJECT_ROOT/bin/plym $PROJECT_ROOT/bin/plym-lib.sh $dir/"
         return 0
     fi
-    # The CLI is two files (plym + plym-lib.sh); keep them in lockstep so a refreshed plym never
-    # sources a stale lib.
     for f in plym plym-lib.sh; do
         tmp=$(mktemp "$dir/.plym.XXXXXX" 2>/dev/null) || return 0
         if cp "$PROJECT_ROOT/bin/$f" "$tmp" && chmod +x "$tmp"; then
@@ -851,9 +848,6 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# --verbose is global and may appear anywhere, including AFTER the command (e.g.
-# `plym update --verbose`). Strip it from the remaining args, preserving order and spaces, so it
-# works for every command — not only the ones that happen to parse their own options.
 _n=$#; _i=0
 while [ "$_i" -lt "$_n" ]; do
     _a="$1"; shift
