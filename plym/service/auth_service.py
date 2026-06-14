@@ -2,7 +2,6 @@ from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from plym.audit import audit
 from plym.exceptions.auth import (
     InactiveUserError,
     InvalidCredentialsError,
@@ -25,7 +24,6 @@ class AuthService(Traced):
         self._passwords = PasswordService()
         self._jwt = TokenService()
 
-    @audit("users.create", target=lambda p, r: r)
     async def register(
         self,
         *,
@@ -46,7 +44,6 @@ class AuthService(Traced):
         await self._session.commit()
         return user_id
 
-    @audit("auth.login", target=lambda p, r: p.get("email"))
     async def login(self, email: str, password: str) -> TokenPair:
         user = await self._users.get_by_email(email)
         if not user:
@@ -75,14 +72,12 @@ class AuthService(Traced):
             raise InactiveUserError()
         return await self._issue_pair(user["id"], user["role"])
 
-    @audit("auth.logout")
     async def logout(self, raw_token: str) -> None:
         record = await self._tokens.get_by_hash(self._jwt.hash_refresh(raw_token))
         if record:
             await self._tokens.delete_by_id(record["id"])
             await self._session.commit()
 
-    @audit("auth.password_change", target=lambda p, r: p["user_id"])
     async def change_password(self, user_id: int, old: str, new: str) -> None:
         user = await self._users.get_by_id(user_id)
         if not user:
@@ -93,7 +88,6 @@ class AuthService(Traced):
         await self._tokens.delete_all_for_user(user_id)
         await self._session.commit()
 
-    @audit("auth.admin_reset_password", target=lambda p, r: p["user_id"])
     async def admin_reset_password(self, user_id: int, new: str) -> None:
         user = await self._users.get_by_id(user_id)
         if not user:

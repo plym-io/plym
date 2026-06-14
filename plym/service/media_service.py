@@ -5,7 +5,6 @@ import aiofiles
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from plym.audit import audit
 from plym.config.site import SiteConfig
 from plym.exceptions.media import (
     MediaForbiddenError,
@@ -36,7 +35,6 @@ class MediaService(Traced):
         )
         return f"{base}/{filename}"
 
-    @audit("media.upload", target=lambda p, r: r.id)
     async def upload(self, *, uploader_id: int, original_name: str, data: bytes) -> MediaItem:
         if len(data) > settings.upload_max_bytes:
             raise UploadTooLargeError(settings.upload_max_bytes)
@@ -86,7 +84,6 @@ class MediaService(Traced):
             raise MediaNotFoundError()
         return MediaItem.model_validate(row)
 
-    @audit("media.delete", target=lambda p, r: p["media_id"])
     async def delete(self, *, media_id: int, requester_id: int) -> None:
         row = await self._media.get_by_id(media_id)
         if not row:

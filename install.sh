@@ -7,9 +7,6 @@ INSTALL_URL="${PLYM_INSTALL_URL:-https://raw.githubusercontent.com/plym-io/plym/
 VERBOSE="${PLYM_VERBOSE:-0}"
 REINSTALL_AVAILABLE=""
 
-# Minimal bootstrap: just enough to clone the repo and report problems. Once the repo is
-# checked out we source bin/plym-lib.sh and use the SAME helpers (spin, http, wait_for_health,
-# fetch_admin, box, …) as the plym CLI — no second, drifting copy of that plumbing here.
 BOLD=$(printf '\033[1m')
 DIM=$(printf '\033[2m')
 ACCENT=$(printf '\033[38;5;208m')
@@ -48,7 +45,6 @@ install_cli() {
 " ;;
         esac
     fi
-    # The CLI is two files: the entrypoint and its shared library. Install them together.
     cp "$(pwd)/bin/plym" "$CLI_DIR/plym" && chmod +x "$CLI_DIR/plym"
     cp "$(pwd)/bin/plym-lib.sh" "$CLI_DIR/plym-lib.sh" && chmod +x "$CLI_DIR/plym-lib.sh"
     CLI_INSTALLED_AT="$CLI_TARGET"

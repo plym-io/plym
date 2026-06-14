@@ -14,3 +14,4 @@ cc-docs/
 *.egg-info/
 .plym-credentials
 uv.lock
+.claude/

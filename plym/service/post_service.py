@@ -1,6 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from plym.audit import audit
 from plym.config.site import SiteConfig
 from plym.exceptions.posts import PostNotFoundError, SlugConflictError
 from plym.instrumentation.tracer import Traced
@@ -53,7 +52,6 @@ class PostService(Traced):
             ids.append(tag_id)
         return ids
 
-    @audit("posts.create", target=lambda p, r: r.id)
     async def create(self, author_id: int, payload: PostCreate) -> Post:
         if await self._posts.slug_exists(payload.slug):
             raise SlugConflictError(payload.slug)
@@ -76,7 +74,6 @@ class PostService(Traced):
         self._pipeline.invalidate_index()
         return await self.get(post_id)
 
-    @audit("posts.update", target=lambda p, r: p["post_id"])
     async def update(self, post_id: int, payload: PostUpdate) -> Post:
         existing = await self._posts.get_by_id(post_id)
         if not existing:
@@ -167,7 +164,6 @@ class PostService(Traced):
         total = await self._posts.count_all(status=status_value, search=search)
         return items, total
 
-    @audit("posts.refresh", target=lambda p, r: p["post_id"])
     async def refresh(self, post_id: int) -> Post:
         post = await self.get(post_id)
         result = await self._pipeline.render_and_persist(
@@ -188,7 +184,6 @@ class PostService(Traced):
         self._pipeline.invalidate_index()
         return await self.get(post_id)
 
-    @audit("posts.delete", target=lambda p, r: p["post_id"])
     async def delete(self, post_id: int) -> None:
         post = await self.get(post_id)
         await self._posts.delete(post_id)

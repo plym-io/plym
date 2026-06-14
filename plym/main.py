@@ -9,7 +9,6 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
 
-from plym.api.audit_router import router as audit_router
 from plym.api.auth_router import router as auth_router
 from plym.api.blog_router import index_router, serve_index
 from plym.api.blog_router import posts_router as blog_posts_router
@@ -101,7 +100,6 @@ app.include_router(posts_router)
 app.include_router(media_router)
 app.include_router(tags_router)
 app.include_router(config_router)
-app.include_router(audit_router)
 app.include_router(seo_router)
 app.include_router(index_router)
 
