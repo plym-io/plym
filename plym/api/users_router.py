@@ -26,7 +26,7 @@ async def list_users(
 ) -> UserPage:
     repo = UserRepository(session)
     rows = await repo.list_paginated(limit=page_size, offset=(page - 1) * page_size)
-    total = await repo.count()
+    total = int(rows[0]["total"]) if rows else await repo.count()
     return UserPage(
         items=[User.model_validate(r) for r in rows],
         total=total,

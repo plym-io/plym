@@ -10,27 +10,43 @@ from plym.repository.tag_repository import TagRepository
 from plym.settings import settings
 
 
+_BACKUP_CHUNK = 500
+
+
 def _serialise(value):
     if isinstance(value, datetime):
         return value.isoformat()
     return value
 
 
-async def run_backup_once() -> str:
-    factory = get_session_factory()
-    async with factory() as session:
-        posts = await PostRepository(session).list_all_for_backup()
-        for post in posts:
-            post["tags"] = await TagRepository(session).list_for_post(post["id"])
+def _encode_post(post: dict) -> str:
+    return json.dumps({k: _serialise(v) for k, v in post.items()}, ensure_ascii=False, default=str)
 
-    payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "posts": [{k: _serialise(v) for k, v in post.items()} for post in posts],
-    }
+
+async def run_backup_once() -> str:
+    generated_at = datetime.now(timezone.utc).isoformat()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     target = settings.backups_dir / f"posts-{stamp}.json"
-    async with aiofiles.open(target, "w", encoding="utf-8") as f:
-        await f.write(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+    factory = get_session_factory()
+    async with factory() as session, aiofiles.open(target, "w", encoding="utf-8") as f:
+        posts = PostRepository(session)
+        tags = TagRepository(session)
+        await f.write('{"generated_at": ' + json.dumps(generated_at) + ', "posts": [')
+        first = True
+        after = 0
+        while True:
+            chunk = await posts.list_for_backup_after(after=after, limit=_BACKUP_CHUNK)
+            if not chunk:
+                break
+            tags_by_post = await tags.list_for_posts([p["id"] for p in chunk])
+            for post in chunk:
+                post["tags"] = tags_by_post.get(post["id"], [])
+                await f.write(_encode_post(post) if first else "," + _encode_post(post))
+                first = False
+            after = chunk[-1]["id"]
+            if len(chunk) < _BACKUP_CHUNK:
+                break
+        await f.write("]}")
     return str(target)
 
 

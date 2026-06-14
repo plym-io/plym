@@ -45,12 +45,9 @@ class PostService(Traced):
         )
 
     async def _ensure_tags(self, names: list[str]) -> list[int]:
-        ids: list[int] = []
-        for name in names:
-            slug = self._pipeline.slugify(name)
-            tag_id = await self._tags.upsert(name, slug)
-            ids.append(tag_id)
-        return ids
+        pairs = [(name, self._pipeline.slugify(name)) for name in names]
+        slug_to_id = await self._tags.upsert_many(pairs)
+        return [slug_to_id[slug] for _, slug in pairs]
 
     async def create(self, author_id: int, payload: PostCreate) -> Post:
         if await self._posts.slug_exists(payload.slug):
@@ -102,15 +99,13 @@ class PostService(Traced):
         row = await self._posts.get_by_id(post_id)
         if not row:
             raise PostNotFoundError()
-        tags = await self._tags.list_for_post(post_id)
-        return self._row_to_post(row, tags)
+        return self._row_to_post(row, row["tags"])
 
     async def get_by_slug(self, slug: str) -> Post:
         row = await self._posts.get_by_slug(slug)
         if not row:
             raise PostNotFoundError()
-        tags = await self._tags.list_for_post(row["id"])
-        return self._row_to_post(row, tags)
+        return self._row_to_post(row, row["tags"])
 
     def _to_list_item(self, r: dict, tags: list[dict]) -> PostListItem:
         author = UserPublic(
@@ -134,15 +129,15 @@ class PostService(Traced):
             tags=[Tag.model_validate(t) for t in tags],
         )
 
+    async def _items_with_tags(self, rows: list[dict]) -> list[PostListItem]:
+        tags_by_post = await self._tags.list_for_posts([r["id"] for r in rows])
+        return [self._to_list_item(r, tags_by_post.get(r["id"], [])) for r in rows]
+
     async def list_published(self, *, page: int, page_size: int) -> tuple[list[PostListItem], int]:
         offset = max(0, (page - 1) * page_size)
         rows = await self._posts.list_published(limit=page_size, offset=offset)
-        items: list[PostListItem] = []
-        for r in rows:
-            tags = await self._tags.list_for_post(r["id"])
-            items.append(self._to_list_item(r, tags))
-        total = await self._posts.count_published()
-        return items, total
+        total = int(rows[0]["total"]) if rows else await self._posts.count_published()
+        return await self._items_with_tags(rows), total
 
     async def list_all(
         self,
@@ -157,12 +152,12 @@ class PostService(Traced):
         rows = await self._posts.list_all_paginated(
             limit=page_size, offset=offset, status=status_value, search=search
         )
-        items: list[PostListItem] = []
-        for r in rows:
-            tags = await self._tags.list_for_post(r["id"])
-            items.append(self._to_list_item(r, tags))
-        total = await self._posts.count_all(status=status_value, search=search)
-        return items, total
+        total = (
+            int(rows[0]["total"])
+            if rows
+            else await self._posts.count_all(status=status_value, search=search)
+        )
+        return await self._items_with_tags(rows), total
 
     async def refresh(self, post_id: int) -> Post:
         post = await self.get(post_id)

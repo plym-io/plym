@@ -75,7 +75,7 @@ class MediaService(Traced):
     async def list_paginated(self, *, page: int, page_size: int) -> tuple[list[MediaItem], int]:
         offset = max(0, (page - 1) * page_size)
         rows = await self._media.list_paginated(limit=page_size, offset=offset)
-        total = await self._media.count()
+        total = int(rows[0]["total"]) if rows else await self._media.count()
         return [MediaItem.model_validate(r) for r in rows], total
 
     async def get(self, media_id: int) -> MediaItem:

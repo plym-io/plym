@@ -1,6 +1,8 @@
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from plym.exceptions.users import EmailAlreadyExistsError
 from plym.instrumentation.tracer import Traced
 
 
@@ -57,27 +59,30 @@ class UserRepository(Traced):
         role: str,
         display_name: str,
     ) -> int:
-        result = await self._session.execute(
-            text(
-                """
-                INSERT INTO auth.users (email, password_hash, role)
-                VALUES (:email, :password_hash, :role)
-                RETURNING id
-                """
-            ),
-            {"email": email, "password_hash": password_hash, "role": role},
-        )
-        user_id = int(result.scalar_one())
-        await self._session.execute(
-            text(
-                """
-                INSERT INTO public.pl_users (id, display_name)
-                VALUES (:id, :display_name)
-                """
-            ),
-            {"id": user_id, "display_name": display_name},
-        )
-        return user_id
+        try:
+            result = await self._session.execute(
+                text(
+                    """
+                    INSERT INTO auth.users (email, password_hash, role)
+                    VALUES (:email, :password_hash, :role)
+                    RETURNING id
+                    """
+                ),
+                {"email": email, "password_hash": password_hash, "role": role},
+            )
+            user_id = int(result.scalar_one())
+            await self._session.execute(
+                text(
+                    """
+                    INSERT INTO public.pl_users (id, display_name)
+                    VALUES (:id, :display_name)
+                    """
+                ),
+                {"id": user_id, "display_name": display_name},
+            )
+            return user_id
+        except IntegrityError as e:
+            raise EmailAlreadyExistsError() from e
 
     async def update_password(self, user_id: int, password_hash: str) -> None:
         await self._session.execute(
@@ -91,7 +96,8 @@ class UserRepository(Traced):
                 """
                 SELECT u.id, u.email, u.role, u.is_active,
                        u.created_at, u.updated_at,
-                       p.display_name, p.bio, p.avatar_url
+                       p.display_name, p.bio, p.avatar_url,
+                       COUNT(*) OVER() AS total
                 FROM auth.users u
                 LEFT JOIN public.pl_users p ON p.id = u.id
                 ORDER BY u.created_at DESC, u.id DESC

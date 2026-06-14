@@ -15,3 +15,4 @@ cc-docs/
 .plym-credentials
 uv.lock
 .claude/
+refnotes/

@@ -63,7 +63,8 @@ class MediaRepository(Traced):
             text(
                 """
                 SELECT id, filename, original_name, mime_type, size_bytes, width, height,
-                       url, uploader_id, created_at
+                       url, uploader_id, created_at,
+                       COUNT(*) OVER() AS total
                 FROM public.pl_media
                 ORDER BY created_at DESC, id DESC
                 LIMIT :limit OFFSET :offset

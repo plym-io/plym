@@ -58,7 +58,7 @@ class AuthService(Traced):
 
     async def refresh(self, raw_token: str) -> TokenPair:
         token_hash = self._jwt.hash_refresh(raw_token)
-        record = await self._tokens.get_by_hash(token_hash)
+        record = await self._tokens.consume_by_hash(token_hash)
         if not record:
             raise TokenInvalidError()
         expires_at = record["expires_at"]
@@ -66,7 +66,6 @@ class AuthService(Traced):
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if expires_at < datetime.now(timezone.utc):
             raise TokenInvalidError()
-        await self._tokens.delete_by_id(record["id"])
         user = await self._users.get_by_id(record["user_id"])
         if not user or not user["is_active"]:
             raise InactiveUserError()

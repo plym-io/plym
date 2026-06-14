@@ -20,7 +20,6 @@ async def sitemap(
 ) -> Response:
     base = site.public_blog_url()
     posts = PostRepository(session)
-    rows = await posts.list_published(limit=50_000, offset=0)
 
     lines = ['<?xml version="1.0" encoding="UTF-8"?>',
              '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
@@ -28,15 +27,23 @@ async def sitemap(
     lines.append(f"    <loc>{escape(base)}/</loc>")
     lines.append("    <changefreq>daily</changefreq>")
     lines.append("  </url>")
-    for row in rows:
-        slug = escape(row["slug"])
-        lastmod = (row.get("updated_at") or row.get("published_at"))
-        lines.append("  <url>")
-        lines.append(f"    <loc>{base}/{slug}</loc>")
-        if lastmod is not None:
-            lines.append(f"    <lastmod>{lastmod.date().isoformat()}</lastmod>")
-        lines.append("    <changefreq>weekly</changefreq>")
-        lines.append("  </url>")
+    after = 0
+    while True:
+        chunk = await posts.list_published_slugs_after(after=after, limit=1000)
+        if not chunk:
+            break
+        for row in chunk:
+            slug = escape(row["slug"])
+            lastmod = (row.get("updated_at") or row.get("published_at"))
+            lines.append("  <url>")
+            lines.append(f"    <loc>{base}/{slug}</loc>")
+            if lastmod is not None:
+                lines.append(f"    <lastmod>{lastmod.date().isoformat()}</lastmod>")
+            lines.append("    <changefreq>weekly</changefreq>")
+            lines.append("  </url>")
+        after = chunk[-1]["id"]
+        if len(chunk) < 1000:
+            break
     lines.append("</urlset>")
     body = "\n".join(lines)
     headers = {}

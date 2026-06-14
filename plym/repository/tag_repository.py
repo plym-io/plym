@@ -8,19 +8,22 @@ class TagRepository(Traced):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def upsert(self, name: str, slug: str) -> int:
+    async def upsert_many(self, tags: list[tuple[str, str]]) -> dict[str, int]:
+        if not tags:
+            return {}
+        by_slug = {slug: name for name, slug in tags}
         result = await self._session.execute(
             text(
                 """
                 INSERT INTO public.pl_tags (name, slug)
-                VALUES (:name, :slug)
+                SELECT * FROM UNNEST(CAST(:names AS TEXT[]), CAST(:slugs AS TEXT[]))
                 ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
-                RETURNING id
+                RETURNING slug, id
                 """
             ),
-            {"name": name, "slug": slug},
+            {"names": list(by_slug.values()), "slugs": list(by_slug.keys())},
         )
-        return int(result.scalar_one())
+        return {row["slug"]: int(row["id"]) for row in result.mappings().all()}
 
     async def list_all(self) -> list[dict]:
         result = await self._session.execute(
@@ -28,20 +31,27 @@ class TagRepository(Traced):
         )
         return [dict(r) for r in result.mappings().all()]
 
-    async def list_for_post(self, post_id: int) -> list[dict]:
+    async def list_for_posts(self, post_ids: list[int]) -> dict[int, list[dict]]:
+        if not post_ids:
+            return {}
         result = await self._session.execute(
             text(
                 """
-                SELECT t.id, t.name, t.slug
+                SELECT pt.post_id, t.id, t.name, t.slug
                 FROM public.pl_tags t
                 JOIN public.pl_post_tags pt ON pt.tag_id = t.id
-                WHERE pt.post_id = :id
+                WHERE pt.post_id = ANY(CAST(:ids AS BIGINT[]))
                 ORDER BY t.name
                 """
             ),
-            {"id": post_id},
+            {"ids": post_ids},
         )
-        return [dict(r) for r in result.mappings().all()]
+        grouped: dict[int, list[dict]] = {}
+        for row in result.mappings().all():
+            grouped.setdefault(row["post_id"], []).append(
+                {"id": row["id"], "name": row["name"], "slug": row["slug"]}
+            )
+        return grouped
 
     async def replace_for_post(self, post_id: int, tag_ids: list[int]) -> None:
         await self._session.execute(

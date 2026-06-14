@@ -37,6 +37,20 @@ class RefreshTokenRepository(Traced):
         row = result.mappings().first()
         return dict(row) if row else None
 
+    async def consume_by_hash(self, token_hash: str) -> dict | None:
+        result = await self._session.execute(
+            text(
+                """
+                DELETE FROM auth.refresh_tokens
+                WHERE token_hash = :token_hash
+                RETURNING id, user_id, expires_at
+                """
+            ),
+            {"token_hash": token_hash},
+        )
+        row = result.mappings().first()
+        return dict(row) if row else None
+
     async def delete_by_id(self, token_id: int) -> None:
         await self._session.execute(
             text("DELETE FROM auth.refresh_tokens WHERE id = :id"),

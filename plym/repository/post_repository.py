@@ -1,9 +1,28 @@
+import json
+
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from plym.exceptions.posts import SlugConflictError
 from plym.instrumentation.tracer import Traced
+
+_TAGS_JSON = """
+        COALESCE((
+            SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'slug', t.slug)
+                            ORDER BY t.name)
+            FROM public.pl_post_tags pt
+            JOIN public.pl_tags t ON t.id = pt.tag_id
+            WHERE pt.post_id = p.id
+        ), '[]'::json) AS tags
+"""
+
+
+def _with_tags(row) -> dict:
+    data = dict(row)
+    tags = data["tags"]
+    data["tags"] = tags if isinstance(tags, list) else json.loads(tags)
+    return data
 
 
 class PostRepository(Traced):
@@ -79,8 +98,9 @@ class PostRepository(Traced):
     async def get_by_id(self, post_id: int) -> dict | None:
         result = await self._session.execute(
             text(
-                """
-                SELECT p.*, u.display_name, u.avatar_url
+                f"""
+                SELECT p.*, u.display_name, u.avatar_url,
+                {_TAGS_JSON}
                 FROM public.pl_posts p
                 JOIN public.pl_users u ON u.id = p.author_id
                 WHERE p.id = :id
@@ -89,13 +109,14 @@ class PostRepository(Traced):
             {"id": post_id},
         )
         row = result.mappings().first()
-        return dict(row) if row else None
+        return _with_tags(row) if row else None
 
     async def get_by_slug(self, slug: str) -> dict | None:
         result = await self._session.execute(
             text(
-                """
-                SELECT p.*, u.display_name, u.avatar_url
+                f"""
+                SELECT p.*, u.display_name, u.avatar_url,
+                {_TAGS_JSON}
                 FROM public.pl_posts p
                 JOIN public.pl_users u ON u.id = p.author_id
                 WHERE p.slug = :slug
@@ -104,7 +125,7 @@ class PostRepository(Traced):
             {"slug": slug},
         )
         row = result.mappings().first()
-        return dict(row) if row else None
+        return _with_tags(row) if row else None
 
     async def list_published(self, *, limit: int, offset: int) -> list[dict]:
         result = await self._session.execute(
@@ -112,7 +133,8 @@ class PostRepository(Traced):
                 """
                 SELECT p.id, p.slug, p.title, p.status, p.reading_time, p.excerpt,
                        p.cover, p.canonical_url, p.published_at, p.created_at, p.updated_at,
-                       u.id AS author_id, u.display_name, u.avatar_url
+                       u.id AS author_id, u.display_name, u.avatar_url,
+                       COUNT(*) OVER() AS total
                 FROM public.pl_posts p
                 JOIN public.pl_users u ON u.id = p.author_id
                 WHERE p.status = 'published'
@@ -158,7 +180,8 @@ class PostRepository(Traced):
                 f"""
                 SELECT p.id, p.slug, p.title, p.status, p.reading_time, p.excerpt,
                        p.cover, p.canonical_url, p.published_at, p.created_at, p.updated_at,
-                       u.id AS author_id, u.display_name, u.avatar_url
+                       u.id AS author_id, u.display_name, u.avatar_url,
+                       COUNT(*) OVER() AS total
                 FROM public.pl_posts p
                 JOIN public.pl_users u ON u.id = p.author_id
                 {where}
@@ -185,7 +208,7 @@ class PostRepository(Traced):
         )
         return int(result.scalar_one())
 
-    async def find_references_to_filename(self, filename: str) -> list[dict]:
+    async def find_references_to_filename(self, filename: str, *, limit: int = 50) -> list[dict]:
         pattern = f"%{filename}%"
         result = await self._session.execute(
             text(
@@ -194,13 +217,14 @@ class PostRepository(Traced):
                 FROM public.pl_posts
                 WHERE content LIKE :p OR cover LIKE :p
                 ORDER BY id
+                LIMIT :limit
                 """
             ),
-            {"p": pattern},
+            {"p": pattern, "limit": limit},
         )
         return [dict(r) for r in result.mappings().all()]
 
-    async def list_all_for_backup(self) -> list[dict]:
+    async def list_for_backup_after(self, *, after: int, limit: int) -> list[dict]:
         result = await self._session.execute(
             text(
                 """
@@ -208,8 +232,26 @@ class PostRepository(Traced):
                        rendered_path, excerpt, cover, published_at,
                        created_at, updated_at
                 FROM public.pl_posts
+                WHERE id > :after
                 ORDER BY id
+                LIMIT :limit
                 """
-            )
+            ),
+            {"after": after, "limit": limit},
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    async def list_published_slugs_after(self, *, after: int, limit: int) -> list[dict]:
+        result = await self._session.execute(
+            text(
+                """
+                SELECT id, slug, updated_at, published_at
+                FROM public.pl_posts
+                WHERE status = 'published' AND id > :after
+                ORDER BY id
+                LIMIT :limit
+                """
+            ),
+            {"after": after, "limit": limit},
         )
         return [dict(r) for r in result.mappings().all()]
