@@ -24,7 +24,7 @@ from plym.models.post import (
 )
 from plym.service.post_service import PostService
 
-router = APIRouter(prefix="/api/posts", tags=["posts"])
+router = APIRouter(prefix="/api/posts", tags=["Posts"])
 
 
 class PostPage(BaseModel):

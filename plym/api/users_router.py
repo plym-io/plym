@@ -8,7 +8,7 @@ from plym.repository.user_repository import UserRepository
 from plym.service.auth_service import AuthService
 from plym.service.user_service import UserService
 
-router = APIRouter(prefix="/api/users", tags=["users"])
+router = APIRouter(prefix="/api/users", tags=["Users"])
 
 
 class UserPage(BaseModel):

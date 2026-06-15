@@ -10,8 +10,8 @@ from plym.render.cache import get_store
 from plym.service.post_service import PostService
 from plym.settings import settings
 
-index_router = APIRouter(tags=["blog"])
-posts_router = APIRouter(tags=["blog"])
+index_router = APIRouter(tags=["Blog"], include_in_schema=False)
+posts_router = APIRouter(tags=["Blog"], include_in_schema=False)
 
 
 def _with_cache_header(html: str, header: str | None) -> HTMLResponse:

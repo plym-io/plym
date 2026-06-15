@@ -5,7 +5,7 @@ from plym.api.deps import db_session
 from plym.models.tag import Tag
 from plym.repository.tag_repository import TagRepository
 
-router = APIRouter(prefix="/api/tags", tags=["tags"])
+router = APIRouter(prefix="/api/tags", tags=["Tags"])
 
 
 @router.get("", response_model=list[Tag])

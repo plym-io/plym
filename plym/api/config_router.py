@@ -4,7 +4,7 @@ from plym.api.deps import require_admin
 from plym.api.state import site_config
 from plym.config.site import SiteConfig
 
-router = APIRouter(prefix="/api/config", tags=["config"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/api/config", tags=["Config"], dependencies=[Depends(require_admin)])
 
 
 @router.get("", response_model=SiteConfig)

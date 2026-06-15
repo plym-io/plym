@@ -16,3 +16,4 @@ cc-docs/
 uv.lock
 .claude/
 refnotes/
+graphify-out/

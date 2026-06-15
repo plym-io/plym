@@ -6,7 +6,7 @@ from plym.models.token import LoginRequest, RefreshRequest, TokenPair
 from plym.models.user import PasswordChange
 from plym.service.auth_service import AuthService
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
 
 @router.post("/login", response_model=TokenPair)

@@ -10,7 +10,7 @@ from plym.config.site import SiteConfig
 from plym.exceptions.posts import PostNotFoundError
 from plym.repository.post_repository import PostRepository
 
-router = APIRouter(tags=["seo"])
+router = APIRouter(tags=["SEO"], include_in_schema=False)
 
 
 @router.get("/sitemap.xml")

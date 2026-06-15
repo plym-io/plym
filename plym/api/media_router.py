@@ -8,7 +8,7 @@ from plym.config.site import SiteConfig
 from plym.models.media import MediaItem
 from plym.service.media_service import MediaService
 
-router = APIRouter(prefix="/api/media", tags=["media"])
+router = APIRouter(prefix="/api/media", tags=["Media"])
 
 
 class MediaPage(BaseModel):

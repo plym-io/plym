@@ -139,6 +139,7 @@ sed -i.bak "s|^PLYM_PORT=.*|PLYM_PORT=$PORT|" .env
 sed -i.bak "s|^PLYM_JWT_SECRET=.*|PLYM_JWT_SECRET=$JWT_SECRET|" .env
 sed -i.bak "s|^PLYM_SUPERUSER_EMAIL=.*|PLYM_SUPERUSER_EMAIL=$ADMIN_EMAIL|" .env
 sed -i.bak "s|^PLYM_SUPERUSER_PASSWORD=.*|PLYM_SUPERUSER_PASSWORD=$ADMIN_PASSWORD|" .env
+sed -i.bak "s|^PLYM_DB_PASSWORD=.*|PLYM_DB_PASSWORD=$ADMIN_PASSWORD|" .env
 rm -f .env.bak
 
 cp config.yaml.example config.yaml

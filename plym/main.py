@@ -83,7 +83,18 @@ async def lifespan(app: FastAPI):
     await dispose_engine()
 
 
-app = FastAPI(title="Plym", lifespan=lifespan)
+docs = {}
+if not settings.debug:
+    docs = {
+        "docs_url": None,
+        "redoc_url": None,
+        "openapi_url": None,
+    }
+app = FastAPI(
+    title="Plym",
+    lifespan=lifespan,
+    **docs,
+)
 FastAPIInstrumentor.instrument_app(app)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(ActorMiddleware, jwt=TokenService())
