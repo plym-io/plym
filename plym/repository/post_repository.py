@@ -76,7 +76,7 @@ class PostRepository(Traced):
             raise SlugConflictError(slug) from e
 
     _UPDATABLE_FIELDS = {
-        "title", "content", "excerpt", "cover", "canonical_url", "status", "reading_time"
+        "slug", "title", "content", "excerpt", "cover", "canonical_url", "status", "reading_time"
     }
 
     async def update_fields(self, post_id: int, fields: dict) -> None:
@@ -84,10 +84,15 @@ class PostRepository(Traced):
         if not assignable:
             return
         set_clause = ", ".join(f"{k} = :{k}" for k in assignable)
-        await self._session.execute(
-            text(f"UPDATE public.pl_posts SET {set_clause} WHERE id = :id"),
-            {**assignable, "id": post_id},
-        )
+        try:
+            await self._session.execute(
+                text(f"UPDATE public.pl_posts SET {set_clause} WHERE id = :id"),
+                {**assignable, "id": post_id},
+            )
+        except IntegrityError as e:
+            if "slug" in assignable:
+                raise SlugConflictError(assignable["slug"]) from e
+            raise
 
     async def set_rendered_path(self, post_id: int, path: str) -> None:
         await self._session.execute(

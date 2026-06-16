@@ -22,6 +22,7 @@ class PostCreate(BaseModel):
 class PostUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=240)
     content: str | None = None
+    slug: str | None = Field(default=None, min_length=1, max_length=240, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     excerpt: str | None = None
     cover: str | None = None
     canonical_url: str | None = Field(default=None, max_length=2048, pattern=_URL_PATTERN)

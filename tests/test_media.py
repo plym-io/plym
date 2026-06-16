@@ -1,3 +1,5 @@
+from collections.abc import Awaitable, Callable
+
 import httpx
 import pytest
 
@@ -81,5 +83,48 @@ async def test_media_list_returns_uploads(
         assert r.status_code == 200
         body = r.json()
         assert any(item["id"] == media_id for item in body["items"])
+    finally:
+        await client.delete(f"/api/media/{media_id}", headers=auth_headers)
+
+
+@pytest.mark.asyncio
+async def test_get_media_by_id(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], png_bytes: bytes
+) -> None:
+    files = {"file": ("single.png", png_bytes, "image/png")}
+    r = await client.post("/api/media", files=files, headers=auth_headers)
+    media_id = r.json()["id"]
+    try:
+        got = await client.get(f"/api/media/{media_id}", headers=auth_headers)
+        assert got.status_code == 200
+        assert got.json()["id"] == media_id
+    finally:
+        await client.delete(f"/api/media/{media_id}", headers=auth_headers)
+
+
+@pytest.mark.asyncio
+async def test_get_missing_media_returns_404(
+    client: httpx.AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    r = await client.get("/api/media/999999999", headers=auth_headers)
+    assert r.status_code == 404
+    assert r.json()["detail"]["code"] == "media.not_found"
+
+
+@pytest.mark.asyncio
+async def test_delete_media_forbidden_for_non_uploader(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    png_bytes: bytes,
+    user_factory: Callable[..., Awaitable[dict]],
+) -> None:
+    files = {"file": ("owned.png", png_bytes, "image/png")}
+    upload = await client.post("/api/media", files=files, headers=auth_headers)
+    media_id = upload.json()["id"]
+    try:
+        other_editor = await user_factory(role="editor")
+        r = await client.delete(f"/api/media/{media_id}", headers=other_editor["headers"])
+        assert r.status_code == 403
+        assert r.json()["detail"]["code"] == "media.forbidden"
     finally:
         await client.delete(f"/api/media/{media_id}", headers=auth_headers)

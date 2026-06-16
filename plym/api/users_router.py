@@ -18,7 +18,7 @@ class UserPage(BaseModel):
     page_size: int
 
 
-@router.get("", response_model=UserPage, dependencies=[Depends(require_admin)])
+@router.get("", response_model=UserPage, dependencies=[Depends(current_user)])
 async def list_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),

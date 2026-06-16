@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends
 
-from plym.api.deps import require_admin
+from plym.api.deps import current_user
 from plym.api.state import site_config
 from plym.config.site import SiteConfig
 
-router = APIRouter(prefix="/api/config", tags=["Config"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/api/config", tags=["Config"], dependencies=[Depends(current_user)])
 
 
 @router.get("", response_model=SiteConfig)

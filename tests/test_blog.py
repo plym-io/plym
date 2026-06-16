@@ -1,6 +1,8 @@
 import httpx
 import pytest
 
+from tests.conftest import BASE_URL, TEST_MODE
+
 
 @pytest.mark.asyncio
 async def test_index_returns_html(client: httpx.AsyncClient) -> None:
@@ -39,10 +41,14 @@ async def test_cache_control_on_post(
         await client.delete(f"/api/posts/{post_id}", headers=auth_headers)
 
 
+@pytest.mark.skipif(
+    TEST_MODE == "inprocess",
+    reason="gzip content-negotiation is a server/proxy concern, not exercisable in-process",
+)
 @pytest.mark.asyncio
 async def test_gzip_negotiation() -> None:
     async with httpx.AsyncClient(
-        base_url="http://localhost:8000",
+        base_url=BASE_URL,
         timeout=10.0,
         headers={"Accept-Encoding": "gzip"},
     ) as c:

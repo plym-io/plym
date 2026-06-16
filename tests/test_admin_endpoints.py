@@ -1,13 +1,14 @@
-import uuid
+from collections.abc import Awaitable, Callable
 
 import httpx
 import pytest
 
 
 @pytest.mark.asyncio
-async def test_get_config_requires_admin(client: httpx.AsyncClient) -> None:
+async def test_get_config_requires_auth(client: httpx.AsyncClient) -> None:
     r = await client.get("/api/config")
     assert r.status_code == 401
+    assert r.json()["detail"]["code"] == "auth.token_invalid"
 
 
 @pytest.mark.asyncio
@@ -23,21 +24,29 @@ async def test_get_config_returns_site_settings(
 
 
 @pytest.mark.asyncio
-async def test_list_users_requires_admin(client: httpx.AsyncClient) -> None:
+async def test_list_users_requires_auth(client: httpx.AsyncClient) -> None:
     r = await client.get("/api/users")
     assert r.status_code == 401
+    assert r.json()["detail"]["code"] == "auth.token_invalid"
 
 
 @pytest.mark.asyncio
 async def test_list_users_returns_paginated(
-    client: httpx.AsyncClient, auth_headers: dict[str, str]
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    user_factory: Callable[..., Awaitable[dict]],
 ) -> None:
+    created = await user_factory(role="editor")
     r = await client.get("/api/users", headers=auth_headers)
     assert r.status_code == 200
     body = r.json()
     assert body["page"] == 1
     assert body["total"] >= 1
-    assert any(u["role"] == "administrator" for u in body["items"])
+    assert len(body["items"]) <= body["page_size"]
+    assert all(u["role"] in ("reader", "editor", "administrator") for u in body["items"])
+    # newly created users sort first (ORDER BY created_at DESC), so the just-created
+    # user is on page 1 regardless of how many users exist — robust to accumulation.
+    assert any(u["id"] == created["id"] and u["role"] == "editor" for u in body["items"])
 
 
 @pytest.mark.asyncio
@@ -92,8 +101,9 @@ async def test_get_draft_post_hidden_from_public(
 
 @pytest.mark.asyncio
 async def test_deactivate_user_requires_admin(client: httpx.AsyncClient) -> None:
-    r = await client.delete("/api/users/1")
+    r = await client.delete("/api/users/1/deactivate")
     assert r.status_code == 401
+    assert r.json()["detail"]["code"] == "auth.token_invalid"
 
 
 @pytest.mark.asyncio
@@ -102,7 +112,7 @@ async def test_admin_cannot_deactivate_self(
 ) -> None:
     me = await client.get("/api/users/me", headers=auth_headers)
     assert me.status_code == 200
-    r = await client.delete(f"/api/users/{me.json()['id']}", headers=auth_headers)
+    r = await client.delete(f"/api/users/{me.json()['id']}/deactivate", headers=auth_headers)
     assert r.status_code == 403
     assert r.json()["detail"]["code"] == "users.cannot_delete_self"
 
@@ -111,28 +121,22 @@ async def test_admin_cannot_deactivate_self(
 async def test_deactivate_missing_user_returns_404(
     client: httpx.AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    r = await client.delete("/api/users/999999999", headers=auth_headers)
+    r = await client.delete("/api/users/999999999/deactivate", headers=auth_headers)
     assert r.status_code == 404
+    assert r.json()["detail"]["code"] == "users.not_found"
 
 
 @pytest.mark.asyncio
 async def test_deactivate_then_reactivate_user(
-    client: httpx.AsyncClient, auth_headers: dict[str, str]
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    user_factory: Callable[..., Awaitable[dict]],
 ) -> None:
-    email = f"deact-{uuid.uuid4().hex[:12]}@plym.local"
-    password = "deactivate-pw-123"
-    created = await client.post(
-        "/api/users",
-        json={"email": email, "password": password, "display_name": "Deact", "role": "reader"},
-        headers=auth_headers,
-    )
-    assert created.status_code == 201, created.text
-    user_id = created.json()["id"]
-    creds = {"email": email, "password": password}
+    user = await user_factory(role="reader")
+    user_id = user["id"]
+    creds = {"email": user["email"], "password": user["password"]}
 
-    assert (await client.post("/api/auth/login", json=creds)).status_code == 200
-
-    deactivated = await client.delete(f"/api/users/{user_id}", headers=auth_headers)
+    deactivated = await client.delete(f"/api/users/{user_id}/deactivate", headers=auth_headers)
     assert deactivated.status_code == 204
 
     blocked = await client.post("/api/auth/login", json=creds)

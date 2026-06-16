@@ -75,6 +75,12 @@ class PostService(Traced):
         existing = await self._posts.get_by_id(post_id)
         if not existing:
             raise PostNotFoundError()
+        if (
+            payload.slug is not None
+            and payload.slug != existing["slug"]
+            and await self._posts.slug_exists(payload.slug)
+        ):
+            raise SlugConflictError(payload.slug)
         fields = payload.model_dump(exclude_unset=True, exclude={"tags"})
         if "status" in fields and fields["status"] is not None:
             fields["status"] = fields["status"].value
@@ -89,9 +95,12 @@ class PostService(Traced):
         new_status = fields.get("status")
         was_published = existing["status"] == "published"
         is_unpublishing = new_status is not None and new_status != "published" and was_published
+        slug_changed = "slug" in fields and fields["slug"] != existing["slug"]
         if is_unpublishing:
             self._pipeline.remove_rendered(existing["slug"])
         else:
+            if slug_changed and was_published:
+                self._pipeline.remove_rendered(existing["slug"])
             self._pipeline.invalidate_index()
         return await self.get(post_id)
 
