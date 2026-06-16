@@ -13,3 +13,10 @@ class EmailAlreadyExistsError(PlymError):
 
     def __init__(self) -> None:
         super().__init__(409, "Email already in use")
+
+
+class CannotDeleteSelfError(PlymError):
+    code = "users.cannot_delete_self"
+
+    def __init__(self) -> None:
+        super().__init__(403, "Administrators cannot delete their own account")

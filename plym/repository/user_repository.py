@@ -90,6 +90,12 @@ class UserRepository(Traced):
             {"h": password_hash, "id": user_id},
         )
 
+    async def set_active(self, user_id: int, active: bool) -> None:
+        await self._session.execute(
+            text("UPDATE auth.users SET is_active = :active WHERE id = :id"),
+            {"active": active, "id": user_id},
+        )
+
     async def list_paginated(self, *, limit: int, offset: int) -> list[dict]:
         result = await self._session.execute(
             text(

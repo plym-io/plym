@@ -83,3 +83,24 @@ async def admin_reset_password(
 ) -> dict[str, bool]:
     await AuthService(session).admin_reset_password(user_id, payload.new_password)
     return {"ok": True}
+
+
+@router.delete("/{user_id}/deactivate", status_code=204)
+async def deactivate_user(
+    user_id: int,
+    requester: CurrentUser = Depends(require_admin),
+    session: AsyncSession = Depends(db_session),
+) -> None:
+    await UserService(session).deactivate(user_id, requester_id=requester.id)
+
+
+@router.post(
+    "/{user_id}/reactivate",
+    response_model=User,
+    dependencies=[Depends(require_admin)],
+)
+async def reactivate_user(
+    user_id: int,
+    session: AsyncSession = Depends(db_session),
+) -> User:
+    return await UserService(session).reactivate(user_id)
