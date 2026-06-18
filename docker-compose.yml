@@ -42,5 +42,23 @@ services:
       - ./docker/ai-crawlers.caddy:/etc/caddy/ai-crawlers.caddy:ro
       - ./storage:/srv/storage:ro
 
+  mcp:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    profiles: ["mcp"]
+    env_file: .env
+    environment:
+      PLYM_MCP_BASE_URL: http://api:8000
+      PLYM_MCP_TRANSPORT: http
+      PLYM_MCP_HOST: 0.0.0.0
+    command: ["python", "-m", "plym.mcp"]
+    depends_on:
+      - api
+    volumes:
+      - ./plym:/app/plym:ro
+    ports:
+      - "127.0.0.1:${PLYM_MCP_PUBLISH_PORT:-9369}:8000"
+
 volumes:
   plym_db:

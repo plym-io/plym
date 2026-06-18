@@ -113,6 +113,11 @@ Usage:
                                        blog.flapico.com or flapico.com/blog.
                                        Proxies: --nginx, --caddy, --traefik.
   plym unset url                       Remove the reverse proxy config plym created.
+  plym enable mcp <url> --<proxy>      Start the MCP server and serve it on your own domain through a
+                                       reverse proxy (same proxies as 'set url': --nginx, --caddy,
+                                       --traefik). Give it its own hostname, e.g. mcp.your-domain.com.
+                                       Every MCP tool authenticates with your plym email + password.
+  plym disable mcp                     Stop the MCP server and remove the reverse proxy config for it.
   plym template install <name> [ref]   Switch to a template. Uses the local copy in plym/templates/
                                        if present, else downloads it. Pass --update to force a fresh
                                        download. Default ref: main. Refs are a branch, tag, or SHA.
@@ -293,6 +298,30 @@ set_env_key() {
 
 unset_env_key() {
     sed -i.bak "/^$1=/d" .env && rm -f .env.bak
+}
+
+enable_compose_profile() {
+    _p="$1"
+    _cur=$(grep '^COMPOSE_PROFILES=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    case ",$_cur," in
+        *",$_p,"*) return 0 ;;
+    esac
+    if [ -n "$_cur" ]; then
+        set_env_key COMPOSE_PROFILES "$_cur,$_p"
+    else
+        set_env_key COMPOSE_PROFILES "$_p"
+    fi
+}
+
+disable_compose_profile() {
+    _p="$1"
+    _cur=$(grep '^COMPOSE_PROFILES=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    _new=$(printf '%s' "$_cur" | tr ',' '\n' | grep -vx "$_p" | grep -v '^$' | paste -sd, -)
+    if [ -n "$_new" ]; then
+        set_env_key COMPOSE_PROFILES "$_new"
+    else
+        unset_env_key COMPOSE_PROFILES
+    fi
 }
 
 set_config_key() {
@@ -569,6 +598,27 @@ EOF
     note "More: $DOCS_URL"
 }
 
+setup_mcp_traefik() {
+    rule="Host(\`$HOST\`)"
+    [ -n "$URL_PATH" ] && rule="Host(\`$HOST\`) && PathPrefix(\`$URL_PATH\`)"
+    cat > docker-compose.mcp-traefik.yml <<EOF
+services:
+  mcp:
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.$PROJECT_LABEL-mcp.rule: $rule
+      traefik.http.routers.$PROJECT_LABEL-mcp.entrypoints: websecure
+      traefik.http.routers.$PROJECT_LABEL-mcp.tls.certresolver: letsencrypt
+      traefik.http.services.$PROJECT_LABEL-mcp.loadbalancer.server.port: "8000"
+EOF
+    say "Wrote docker-compose.mcp-traefik.yml"
+    note "Traefik setups vary, so finish these yourself:"
+    printf "    1. Edit %sentrypoints%s and %scertresolver%s to match your traefik.\n" "$BOLD" "$RESET" "$BOLD" "$RESET"
+    printf "    2. Make sure traefik shares a docker network with this project.\n"
+    printf "    3. Add docker-compose.mcp-traefik.yml to COMPOSE_FILE and run docker compose up -d.\n"
+    note "More: $DOCS_URL"
+}
+
 cmd_set_url() {
     URL_ARG=""
     PROXY=""
@@ -670,6 +720,119 @@ cmd_unset_url() {
     unset_env_key PLYM_PUBLIC_URL
     unset_env_key PLYM_PROXY
     say "$PUBLIC_URL removed from $PROXY. The blog still runs on :$PORT."
+}
+
+cmd_enable_mcp() {
+    URL_ARG=""
+    PROXY=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --nginx)   PROXY=nginx; shift ;;
+            --caddy)   PROXY=caddy; shift ;;
+            --traefik) PROXY=traefik; shift ;;
+            -*) fail "Unknown option: $1" ;;
+            *) URL_ARG="$1"; shift ;;
+        esac
+    done
+    [ -n "$URL_ARG" ] || { usage; exit 1; }
+    [ -n "$PROXY" ] || fail "Pick a reverse proxy: --nginx, --caddy or --traefik.
+  Using a CDN or something else? $DOCS_URL"
+
+    enter_project
+
+    stripped=$(printf '%s' "$URL_ARG" | sed 's|^https\{0,1\}://||; s|/\{1,\}$||')
+    HOST=${stripped%%/*}
+    URL_PATH=""
+    case "$stripped" in
+        */*) URL_PATH="/${stripped#*/}" ;;
+    esac
+    [ -n "$HOST" ] || fail "Could not parse a domain from '$URL_ARG'."
+    case "$HOST" in
+        *:*) fail "Drop the port — plym serves $HOST through the proxy on 80/443." ;;
+    esac
+
+    blog_url=$(grep '^PLYM_PUBLIC_URL=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    blog_host=${blog_url%%/*}
+    [ -n "$blog_host" ] && [ "$blog_host" = "$HOST" ] && \
+        fail "The blog already serves $HOST. Give the MCP server its own hostname, e.g. mcp.$blog_host."
+
+    MCP_PORT=$(grep '^PLYM_MCP_PUBLISH_PORT=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    MCP_PORT="${MCP_PORT:-9369}"
+    PORT="$MCP_PORT"
+    PUBLIC_URL="$HOST$URL_PATH"
+    ENDPOINT="https://$PUBLIC_URL/mcp"
+
+    case "$PROXY" in
+        nginx)   plan="install nginx if missing, write an nginx config for $HOST, reload nginx, obtain a TLS certificate via certbot" ;;
+        caddy)   plan="install caddy if missing, write a caddy site for $HOST, reload caddy (TLS is automatic)" ;;
+        traefik) plan="write docker-compose.mcp-traefik.yml with router labels for you to finish (no sudo)" ;;
+    esac
+    note "plym will start the MCP server and: $plan."
+    if [ -e /dev/tty ]; then
+        printf "%s%s%s → %sMCP · %s%s%s  proceed? %s[Y/n]%s " \
+            "$BOLD" "$ENDPOINT" "$RESET" "$GREEN" "$PROJECT_LABEL" "$RESET" "$DIM" "$RESET" > /dev/tty
+        read confirm < /dev/tty || true
+        case "$confirm" in n|N|no|NO) fail "Cancelled." ;; esac
+    fi
+
+    SUDO=""
+    if [ "$PROXY" != "traefik" ] && [ "$(id -u)" != 0 ]; then
+        SUDO="sudo"
+        sudo -v || fail "sudo is required to configure $PROXY. Prefer no sudo? $DOCS_URL"
+    fi
+
+    set_env_key PLYM_MCP_PUBLISH_PORT "$MCP_PORT"
+    set_env_key PLYM_MCP_PUBLIC_URL "$PUBLIC_URL"
+    set_env_key PLYM_MCP_PROXY "$PROXY"
+    enable_compose_profile mcp
+
+    spin "Starting MCP server" docker compose up -d mcp || fail "Could not start the mcp service."
+    _t=0
+    while ! port_in_use "$MCP_PORT"; do
+        _t=$((_t + 1)); [ "$_t" -gt 30 ] && break; sleep 1
+    done
+
+    if [ "$PROXY" = "traefik" ]; then
+        setup_mcp_traefik
+    else
+        setup_$PROXY
+    fi
+
+    printf "\n  %s%s%s now serves MCP for %s%s%s\n" "$GREEN" "$ENDPOINT" "$RESET" "$BOLD" "$PROJECT_LABEL" "$RESET"
+    note "  Every tool authenticates with your plym email + password (no separate token)."
+    note "  Disable anytime with 'plym disable mcp'."
+    printf "\n"
+}
+
+cmd_disable_mcp() {
+    enter_project
+    PUBLIC_URL=$(grep '^PLYM_MCP_PUBLIC_URL=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    PROXY=$(grep '^PLYM_MCP_PROXY=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    HOST=${PUBLIC_URL%%/*}
+    SUDO=""
+    [ "$PROXY" != "traefik" ] && [ "$(id -u)" != 0 ] && SUDO="sudo"
+    case "$PROXY" in
+        nginx)
+            $SUDO rm -f "/etc/nginx/sites-available/plym-$HOST.conf" \
+                        "/etc/nginx/sites-enabled/plym-$HOST.conf" \
+                        "/etc/nginx/conf.d/plym-$HOST.conf" \
+                        "/etc/nginx/plym/$HOST/$PROJECT_LABEL.conf"
+            $SUDO rmdir "/etc/nginx/plym/$HOST" 2>/dev/null || true
+            spin "Reloading nginx" reload_nginx || true
+            ;;
+        caddy)
+            $SUDO rm -f "/etc/caddy/plym/$HOST.caddy"
+            spin "Reloading caddy" reload_caddy || true
+            ;;
+        traefik)
+            rm -f docker-compose.mcp-traefik.yml
+            ;;
+    esac
+    spin "Stopping MCP server" docker compose rm -sf mcp || true
+    disable_compose_profile mcp
+    unset_env_key PLYM_MCP_PUBLIC_URL
+    unset_env_key PLYM_MCP_PROXY
+    say "MCP server disabled${PUBLIC_URL:+ — $PUBLIC_URL removed from $PROXY}."
 }
 
 cmd_list() {
@@ -870,6 +1033,18 @@ case "${1:-}" in
     unset)
         case "${2:-}" in
             url) shift 2; cmd_unset_url ;;
+            *)   usage; exit 1 ;;
+        esac
+        ;;
+    enable)
+        case "${2:-}" in
+            mcp) shift 2; cmd_enable_mcp "$@" ;;
+            *)   usage; exit 1 ;;
+        esac
+        ;;
+    disable)
+        case "${2:-}" in
+            mcp) shift 2; cmd_disable_mcp ;;
             *)   usage; exit 1 ;;
         esac
         ;;
