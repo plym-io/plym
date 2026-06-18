@@ -6,6 +6,10 @@
 		reverse_proxy api:8000
 	}
 
+	handle /mcp* {
+		reverse_proxy mcp:8000
+	}
+
 	handle_path {$PLYM_BLOG_PREFIX:/blog}/api/* {
 		rewrite * /api{path}
 		reverse_proxy api:8000

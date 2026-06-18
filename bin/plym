@@ -113,11 +113,13 @@ Usage:
                                        blog.flapico.com or flapico.com/blog.
                                        Proxies: --nginx, --caddy, --traefik.
   plym unset url                       Remove the reverse proxy config plym created.
-  plym enable mcp <url> --<proxy>      Start the MCP server and serve it on your own domain through a
-                                       reverse proxy (same proxies as 'set url': --nginx, --caddy,
-                                       --traefik). Give it its own hostname, e.g. mcp.your-domain.com.
-                                       Every MCP tool authenticates with your plym email + password.
-  plym disable mcp                     Stop the MCP server and remove the reverse proxy config for it.
+  plym enable mcp                      Start the MCP server on your blog's domain at /mcp, served through
+                                       the blog's existing reverse proxy (no extra domain or cert).
+  plym enable mcp <url> --<proxy>      Or give MCP its own hostname through a reverse proxy (same proxies
+                                       as 'set url': --nginx, --caddy, --traefik), e.g. mcp.your-domain.com.
+                                       Either way, every MCP tool authenticates with your plym email +
+                                       password.
+  plym disable mcp                     Stop the MCP server and remove any reverse proxy config for it.
   plym template install <name> [ref]   Switch to a template. Uses the local copy in plym/templates/
                                        if present, else downloads it. Pass --update to force a fresh
                                        download. Default ref: main. Refs are a branch, tag, or SHA.
@@ -322,6 +324,14 @@ disable_compose_profile() {
     else
         unset_env_key COMPOSE_PROFILES
     fi
+}
+
+find_free_port() {
+    _p="$1"
+    while port_in_use "$_p"; do
+        _p=$((_p + 1))
+    done
+    printf '%s' "$_p"
 }
 
 set_config_key() {
@@ -734,34 +744,46 @@ cmd_enable_mcp() {
             *) URL_ARG="$1"; shift ;;
         esac
     done
-    [ -n "$URL_ARG" ] || { usage; exit 1; }
-    [ -n "$PROXY" ] || fail "Pick a reverse proxy: --nginx, --caddy or --traefik.
-  Using a CDN or something else? $DOCS_URL"
 
     enter_project
-
-    stripped=$(printf '%s' "$URL_ARG" | sed 's|^https\{0,1\}://||; s|/\{1,\}$||')
-    HOST=${stripped%%/*}
-    URL_PATH=""
-    case "$stripped" in
-        */*) URL_PATH="/${stripped#*/}" ;;
-    esac
-    [ -n "$HOST" ] || fail "Could not parse a domain from '$URL_ARG'."
-    case "$HOST" in
-        *:*) fail "Drop the port — plym serves $HOST through the proxy on 80/443." ;;
-    esac
+    BLOG_PORT="$PORT"
 
     blog_url=$(grep '^PLYM_PUBLIC_URL=' .env 2>/dev/null | cut -d= -f2- | head -1)
     blog_host=${blog_url%%/*}
-    [ -n "$blog_host" ] && [ "$blog_host" = "$HOST" ] && \
-        fail "The blog already serves $HOST. Give the MCP server its own hostname, e.g. mcp.$blog_host."
 
     MCP_PORT=$(grep '^PLYM_MCP_PUBLISH_PORT=' .env 2>/dev/null | cut -d= -f2- | head -1)
-    MCP_PORT="${MCP_PORT:-9369}"
+    [ -n "$MCP_PORT" ] || MCP_PORT=$(find_free_port 9369)
+
+    HOST=""
+    URL_PATH=""
+    if [ -n "$URL_ARG" ]; then
+        stripped=$(printf '%s' "$URL_ARG" | sed 's|^https\{0,1\}://||; s|/\{1,\}$||')
+        HOST=${stripped%%/*}
+        case "$stripped" in */*) URL_PATH="/${stripped#*/}" ;; esac
+        [ -n "$HOST" ] || fail "Could not parse a domain from '$URL_ARG'."
+        case "$HOST" in *:*) fail "Drop the port — plym serves $HOST through the proxy on 80/443." ;; esac
+    fi
+
+    if [ -z "$HOST" ] || { [ -n "$blog_host" ] && [ "$HOST" = "$blog_host" ]; }; then
+        if [ -n "$blog_host" ]; then ENDPOINT="https://$blog_host/mcp"; else ENDPOINT="http://localhost:$BLOG_PORT/mcp"; fi
+        set_env_key PLYM_MCP_PUBLISH_PORT "$MCP_PORT"
+        enable_compose_profile mcp
+        spin "Starting MCP server" docker compose up -d mcp || fail "Could not start the mcp service."
+        spin "Reloading caddy" restart_caddy || fail "Caddy did not come back up after reload."
+        printf "\n  %s%s%s now serves MCP for %s%s%s\n" "$GREEN" "$ENDPOINT" "$RESET" "$BOLD" "$PROJECT_LABEL" "$RESET"
+        note "  Served through your blog's reverse proxy — no separate domain or certificate needed."
+        note "  Every tool authenticates with your plym email + password (no separate token)."
+        note "  Disable anytime with 'plym disable mcp'."
+        printf "\n"
+        return 0
+    fi
+
+    [ -n "$PROXY" ] || fail "Pick a reverse proxy for $HOST: --nginx, --caddy or --traefik.
+  (Omit the URL to serve MCP on your blog's own domain at /mcp instead.) $DOCS_URL"
+
     PORT="$MCP_PORT"
     PUBLIC_URL="$HOST$URL_PATH"
     ENDPOINT="https://$PUBLIC_URL/mcp"
-
     case "$PROXY" in
         nginx)   plan="install nginx if missing, write an nginx config for $HOST, reload nginx, obtain a TLS certificate via certbot" ;;
         caddy)   plan="install caddy if missing, write a caddy site for $HOST, reload caddy (TLS is automatic)" ;;

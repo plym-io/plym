@@ -4,6 +4,7 @@ from typing import Any, Concatenate
 import httpx
 from fastmcp.exceptions import ToolError
 
+from plym.mcp.processing import fetch_html, html_to_markdown
 from plym.mcp.settings import mcp_settings
 from plym.models.post import Post, PostCreate, PostListItem
 from plym.models.token import LoginRequest
@@ -47,6 +48,14 @@ class PlymClient:
             response.raise_for_status()
             token: str = response.json()["access_token"]
             return token
+
+    @authenticated
+    async def markdown_from_html(self, token: str, html: str) -> str:
+        return html_to_markdown(html)
+
+    @authenticated
+    async def html_from_url(self, token: str, url: str) -> str:
+        return await fetch_html(url)
 
     async def _paginate(
         self, token: str, path: str, params: dict[str, str] | None = None
