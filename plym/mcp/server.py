@@ -4,6 +4,8 @@ from fastmcp.server.dependencies import get_http_headers
 from pydantic import ValidationError
 
 from plym.mcp.client import PlymClient
+from plym.mcp.processing import read_file_bytes
+from plym.models.media import MediaItem
 from plym.models.post import Post, PostCreate, PostListItem
 from plym.models.token import LoginRequest
 from plym.models.user import User
@@ -43,6 +45,13 @@ async def get_from_url(url: str) -> str:
 async def create_post(post: PostCreate) -> Post:
     """Create a post in your plym instance"""
     return await _client.create_post(_credentials(), post)
+
+
+@mcp.tool
+async def upload_media(path: str) -> MediaItem:
+    """Upload a local image file to plym; pass the returned `url` as a post's `cover`."""
+    data, filename = await read_file_bytes(path)
+    return await _client.upload_media(_credentials(), data, filename)
 
 
 @mcp.tool

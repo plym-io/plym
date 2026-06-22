@@ -6,6 +6,7 @@ from fastmcp.exceptions import ToolError
 
 from plym.mcp.processing import fetch_html, html_to_markdown
 from plym.mcp.settings import mcp_settings
+from plym.models.media import MediaItem
 from plym.models.post import Post, PostCreate, PostListItem
 from plym.models.token import LoginRequest
 from plym.models.user import User
@@ -96,3 +97,17 @@ class PlymClient:
                 raise ToolError("This account cannot create posts (editor role required).")
             response.raise_for_status()
             return Post.model_validate(response.json())
+
+    @authenticated
+    async def upload_media(self, token: str, data: bytes, filename: str) -> MediaItem:
+        files = {"file": (filename, data, "application/octet-stream")}
+        async with self._http() as http:
+            response = await http.post("/api/media", files=files, headers=self._bearer(token))
+            if response.status_code == 403:
+                raise ToolError("This account cannot upload media (editor role required).")
+            if response.status_code == 400:
+                raise ToolError("Unsupported image format: the bytes are not a readable image.")
+            if response.status_code == 413:
+                raise ToolError("File is too large for this plym instance's upload limit.")
+            response.raise_for_status()
+            return MediaItem.model_validate(response.json())
