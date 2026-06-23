@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Building a Photo Gallery in plym — Plym</title>
+  <meta name="description" content="A live demo of plym&#39;s pure-CSS gallery fence and everyday markdown.">
+  
+
+  <meta property="og:title" content="Building a Photo Gallery in plym">
+  <meta property="og:description" content="A live demo of plym&#39;s pure-CSS gallery fence and everyday markdown.">
+  <meta property="og:image" content="https://picsum.photos/seed/plym-cover/1600/640">
+  <meta property="og:type" content="article">
+  
+
+  <link rel="canonical" href="https://example.com/blog/gallery-demo">
+  <link rel="preload" as="image" href="https://picsum.photos/seed/plym-cover/1600/640" fetchpriority="high">
+<style>:root{--color-primary:#1a1a1a;--color-secondary:#6b6b6b;--color-accent:#e9793a;--color-background:#faf9f6}:root{--font-heading:'Inter';--font-body:'Merriweather'}@font-face{font-family:'Inter';font-style:normal;font-weight:600;font-display:swap;src:url(/blog/webfonts/c491285d6722e4fa) format('woff2');unicode-range:U+20-22,U+30-39,U+41-5a,U+61-7a}@font-face{font-family:'Inter';font-style:normal;font-weight:900;font-display:swap;src:url(/blog/webfonts/c491285d6722e4fa) format('woff2');unicode-range:U+20-22,U+30-39,U+41-5a,U+61-7a}@font-face{font-family:'Merriweather';font-style:normal;font-weight:400;font-stretch:100%;font-display:swap;src:url(/blog/webfonts/379c1eccf863c625) format('woff');unicode-range:U+20-22,U+30-39,U+41-5a,U+61-7a}*,*::before,*::after{box-sizing:border-box}html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms !important;transition-duration:.01ms !important}}:root{--plym-pale:color-mix(in srgb,var(--color-accent) 9%,white);--plym-faint:color-mix(in srgb,var(--color-accent) 5%,var(--color-background));--plym-border:color-mix(in srgb,var(--color-accent) 20%,white);--n-border:#e9e2db;--n-surface:#f5f0ea;--n-muted:#9b8e86;--n-code-bg:#1e1612}body{margin:0;font-family:'Merriweather',Georgia,'Times New Roman',serif;font-size:18px;line-height:1.78;color:var(--color-primary);background:var(--color-background);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;font-feature-settings:"kern" 1,"liga" 1}h1,h2,h3,h4,h5,h6{font-family:'Inter',system-ui,-apple-system,sans-serif;font-weight:900;line-height:1.2;letter-spacing:-.022em;color:var(--color-primary);margin:0}p{margin:0 0 1.3em}img{max-width:100%;height:auto;display:block}a{color:var(--color-accent);text-decoration:underline;text-decoration-thickness:1.5px;text-underline-offset:3px;transition:opacity .14s ease}a:hover{opacity:.7;text-decoration-thickness:2.5px}.plym-header{display:flex;align-items:center;justify-content:center;padding:1.5rem 2.5rem;border-bottom:1px solid var(--n-border)}.plym-brand{font-family:'Inter',sans-serif;font-size:1rem;font-weight:900;letter-spacing:-.015em;color:var(--color-primary);text-decoration:none;transition:opacity .14s ease}.plym-brand:hover{opacity:.65;text-decoration:none;text-decoration-thickness:0}.plym-logo{max-height:30px;width:auto}.plym-footer{border-top:1px solid var(--n-border);padding:1.75rem 2.5rem;text-align:center;font-family:'Inter',sans-serif;font-size:.775rem;font-weight:600;color:var(--n-muted);letter-spacing:.03em}.plym-footer a{color:inherit}.plym-footer a:hover{opacity:.7}.plym-meta{font-family:'Inter',sans-serif;font-size:.775rem;font-weight:600;color:var(--n-muted);letter-spacing:.04em;text-transform:uppercase;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin:0}.plym-meta time{font-variant-numeric:tabular-nums}.plym-meta-sep{color:var(--color-accent)}.plym-card{padding:3rem 0;border-bottom:1px solid var(--n-border)}.plym-card:first-child{padding-top:0}.plym-card:last-child{border-bottom:0}.plym-card-title{font-size:1.75rem;font-weight:900;letter-spacing:-.025em;line-height:1.25;margin:0 0 .75rem}.plym-card-title a{color:var(--color-primary);text-decoration:none;transition:color .14s ease}.plym-card-title a:hover{color:var(--color-accent);opacity:1}.plym-card-excerpt{font-size:1rem;line-height:1.7;color:var(--color-secondary);margin:0 0 1.25rem}.plym-card-meta{margin-top:.25rem}.plym-empty{text-align:center;padding:6rem 0;color:var(--n-muted);font-style:italic;font-size:1rem}.plym-article-title{font-size:2.625rem;font-weight:900;letter-spacing:-.03em;line-height:1.13;margin:0 0 1.5rem}@media(max-width:680px){.plym-article-title{font-size:2rem}}.plym-article-meta{margin-bottom:2.75rem}.plym-cover{width:100%;border-radius:8px;margin:0 0 3rem;max-height:480px;object-fit:cover}.plym-toc{position:sticky;top:2rem}.plym-toc-label{font-family:'Inter',sans-serif;font-size:.68rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent);margin:0 0 1rem;padding-bottom:.6rem;border-bottom:1px solid var(--plym-border)}.plym-toc-list{list-style:none;padding:0;margin:0;font-family:'Inter',sans-serif;font-size:.84rem;font-weight:600;line-height:1.4}.plym-toc-list .plym-toc-list{padding-left:.9rem;margin:.35rem 0;font-size:.79rem;border-left:1px solid var(--n-border)}.plym-toc-list li{margin:.55rem 0}.plym-toc-list a{color:var(--color-secondary);text-decoration:none;transition:color .14s ease;display:block}.plym-toc-list a:hover{color:var(--color-accent);opacity:1}.plym-content{font-size:1rem}.plym-content h2{font-size:1.65rem;margin:3.25rem 0 .9rem;scroll-margin-top:1.5rem}.plym-content h3{font-size:1.3rem;margin:2.75rem 0 .75rem;scroll-margin-top:1.5rem}.plym-content h4{font-size:1.1rem;margin:2.25rem 0 .5rem;scroll-margin-top:1.5rem}.plym-content h2>a.toclink.plym-content h3>a.toclink,.plym-content h4>a.toclink{color:inherit;text-decoration:none;position:relative}.plym-content h2>a.toclink,.plym-content h3>a.toclink,.plym-content h4>a.toclink,.plym-content h5>a.toclink,.plym-content h6>a.toclink{color:inherit;text-decoration:none;cursor:pointer}.plym-content h2>a.toclink:hover,.plym-content h3>a.toclink:hover,.plym-content h4>a.toclink:hover,.plym-content h5>a.toclink:hover,.plym-content h6>a.toclink:hover{color:inherit;opacity:1;text-decoration:none}.plym-content h2>a.toclink::before,.plym-content h3>a.toclink::before,.plym-content h4>a.toclink::before,.plym-content h5>a.toclink::before,.plym-content h6>a.toclink::before{display:none}.plym-content p{margin:0 0 1.5em}.plym-content ul,.plym-content ol{padding-left:1.75rem;margin:0 0 1.5em}.plym-content li{margin-bottom:.4em}.plym-content blockquote{margin:2.5em 0;padding:1rem 1.5rem;border-left:3px solid var(--color-accent);background:var(--plym-pale);border-radius:0 6px 6px 0;font-style:italic;color:var(--color-secondary)}.plym-content blockquote p:last-child{margin-bottom:0}.plym-content code{font-family:ui-monospace,'JetBrains Mono','Fira Code',SFMono-Regular,monospace;font-size:.875em;background:var(--n-surface);color:var(--color-primary);padding:.15em .45em;border-radius:4px}.plym-content pre{margin:2em 0;padding:1.25rem 1.5rem;border-radius:8px;overflow-x:auto;font-size:.9em;line-height:1.65;background:var(--n-code-bg);color:#cec8c2}.plym-content pre code{background:transparent;color:inherit;padding:0;font-size:inherit;border-radius:0}.plym-content img{border-radius:6px;margin:2.5em auto}.plym-content hr border:0;text-align:center;margin:3.5rem 0;color:var(--n-muted);font-size:1rem;letter-spacing:.6em}.plym-content hr::before{content:'· · ·'}.plym-content table{border-collapse:collapse;width:100%;margin:2.25em 0;font-size:.9rem;font-family:'Inter',sans-serif;font-weight:600}.plym-content th,.plym-content td{text-align:left;padding:.7rem 1rem;border-bottom:1px solid var(--n-border);vertical-align:top}.plym-content th{font-weight:600;border-bottom:2px solid var(--color-accent);color:var(--color-primary)}.plym-content a{color:var(--color-accent);text-decoration:underline;text-decoration-thickness:1.5px;text-underline-offset:3px}.plym-content .task-list-item{list-style:none;.plym-content .task-list-item input[type="checkbox"]{accent-color:var(--color-accent);margin-right:.5em;vertical-align:middle}a:focus-visible outline:2px solid var(--color-accent);outline-offset:3px;border-radius:2px}.plym-tags{list-style:none;padding:0;margin:3rem 0 2rem;display:flex;gap:.5rem;flex-wrap:wrap;font-family:'Inter',sans-serif}.plym-tags li{font-size:.68rem;font-weight:600;color:var(--color-accent);background:var(--plym-pale);padding:.35rem .9rem;border-radius:999px;letter-spacing:.07em;text-transform:uppercase;border:1px solid var(--plym-border)}.plym-author{display:flex;align-items:flex-start;gap:1.25rem;margin-top:1.5rem;padding:2.25rem;background:var(--plym-faint);border-radius:10px;border:1px solid var(--plym-border)}.plym-author-avatar{width:54px;height:54px;border-radius:50%;object-fit:cover;flex-shrink:0}.plym-author-initials{display:flex;align-items:center;justify-content:center;background:var(--color-accent);color:#fff;font-family:'Inter',sans-serif;font-weight:900;font-size:1.375rem;user-select:none}.plym-author-body{flex:1;min-width:0}.plym-author-kicker{font-family:'Inter',sans-serif;font-size:.65rem;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--color-accent);margin:0 0 .3rem}.plym-author-name{font-family:'Inter',sans-serif;font-size:1.05rem;font-weight:600;letter-spacing:-.01em;color:var(--color-primary);margin:0 0 .3rem}.plym-author-date{font-family:'Inter',sans-serif;font-size:.8rem;font-weight:600;color:var(--n-muted);margin:0}.plym-content .plym-gallery{display:flex;gap:.75rem;margin:2.5em 0;padding-bottom:.6rem;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--plym-border) transparent}.plym-content .plym-gallery img{flex:0 0 auto;width:min(80%,480px);height:clamp(220px,42vh,380px);object-fit:cover;border-radius:8px;margin:0;scroll-snap-align:center}@media(max-width:680px){.plym-content .plym-gallery img{width:88%}}.plym-index-main{max-width:680px;margin:0 auto;padding:4.5rem 2rem 7rem}.plym-post-layout{display:grid;grid-template-columns:220px 1fr 220px;max-width:1180px;margin:0 auto;align-items:start;padding:3.5rem 0 7rem}.plym-toc-col{padding:0 1.75rem 0 2.5rem;align-self:stretch}.plym-article-col{padding:0 2rem;min-width:0}.plym-right-col{padding:0 2.5rem 0 1.75rem}@media(max-width:1100px){.plym-post-layout{grid-template-columns:200px 1fr;max-width:900px;padding:3rem 1.5rem 6rem}.plym-toc-col{padding:0 1.5rem 0 0}.plym-article-col{padding:0}.plym-right-col{display:none}}@media(max-width:680px){.plym-post-layout{grid-template-columns:1fr;padding:2rem 1.25rem 5rem;gap:0}.plym-toc-col{padding:0 0 2rem;border-bottom:1px solid var(--n-border);margin-bottom:2.25rem}}</style></head>
+<body class="plym-post">
+<header class="plym-header">
+  <a class="plym-brand" href="/blog">
+    
+      Plym
+    
+  </a>
+</header>
+
+
+
+<div class="plym-post-layout">
+
+  <aside class="plym-toc-col">
+    
+      <nav class="plym-toc" aria-label="Table of contents">
+        <p class="plym-toc-label">Contents</p>
+        
+  <ol class="plym-toc-list">
+    
+      <li>
+        <a href="#the-gallery-fence">The gallery fence</a>
+        
+      </li>
+    
+      <li>
+        <a href="#how-it-renders">How it renders</a>
+        
+      </li>
+    
+      <li>
+        <a href="#the-rest-of-markdown-still-works">The rest of markdown still works</a>
+        
+      </li>
+    
+  </ol>
+
+      </nav>
+    
+  </aside>
+
+  <article class="plym-article-col">
+
+    <h1 class="plym-article-title">Building a Photo Gallery in plym</h1>
+
+    <p class="plym-meta plym-article-meta">
+      <span>Preview</span>
+      
+      <span class="plym-meta-sep">·</span>
+      <span>3 min read</span>
+    </p>
+
+    
+      <img class="plym-cover" src="https://picsum.photos/seed/plym-cover/1600/640" alt="" fetchpriority="high" decoding="async">
+    
+
+    <div class="plym-content">
+      <p>Most CMS engines make you reach for JavaScript the moment you want images to
+scroll sideways. plym does not. This post is a live demo of the <code>gallery</code> fence,
+plus the everyday markdown features the engine renders to static HTML.</p>
+<h2 id="the-gallery-fence"><a class="toclink" href="#the-gallery-fence">The gallery fence</a></h2>
+<p>Wrap any number of images in a <code>gallery</code> fence — one image per line. You can use
+full markdown image syntax (the alt text is preserved for accessibility and SEO)
+or a bare URL. The engine emits a pure-CSS, scroll-snapping horizontal carousel:
+no JavaScript, fully crawlable, swipeable on touch.</p>
+<div class="plym-gallery"><img src="https://picsum.photos/seed/plym-a/960/640" alt="Coastal cliffs at golden hour" loading="lazy" decoding="async"><img src="https://picsum.photos/seed/plym-b/960/640" alt="Pine forest from above" loading="lazy" decoding="async"><img src="https://picsum.photos/seed/plym-c/960/640" alt="Quiet harbour at dawn" loading="lazy" decoding="async"><img src="https://picsum.photos/seed/plym-d/960/640" alt="" loading="lazy" decoding="async"><img src="https://picsum.photos/seed/plym-e/960/640" alt="Mountain switchbacks" loading="lazy" decoding="async"></div>
+<p>Drag, scroll, or swipe the strip above. Each slide snaps into place.</p>
+<h2 id="how-it-renders"><a class="toclink" href="#how-it-renders">How it renders</a></h2>
+<p>Under the hood the fence is a <code>pymdownx.superfences</code> custom handler. It does two
+things that are easy to get wrong:</p>
+<ol>
+<li>It sets <code>loading="lazy"</code> and <code>decoding="async"</code> on every image directly,
+   because superfences stashes the raw HTML past the lazy-image tree processor.</li>
+<li>It HTML-escapes every URL and alt string, so untrusted content can't break
+   out of the attribute.</li>
+</ol>
+<p>Here is the entire formatter — small, as plym functions should be:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">render_gallery</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">language</span><span class="p">,</span> <span class="n">css_class</span><span class="p">,</span> <span class="n">options</span><span class="p">,</span> <span class="n">md</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="n">images</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+        <span class="n">_gallery_image</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">source</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s1">&#39;&lt;div class=&quot;</span><span class="si">{</span><span class="n">css_class</span><span class="si">}</span><span class="s1">&quot;&gt;</span><span class="si">{</span><span class="n">images</span><span class="si">}</span><span class="s1">&lt;/div&gt;&#39;</span>
+</code></pre></div>
+<p>Note that ordinary fenced code blocks like the one above are <strong>untouched</strong> — they
+still flow through the default Pygments highlighter.</p>
+<h2 id="the-rest-of-markdown-still-works"><a class="toclink" href="#the-rest-of-markdown-still-works">The rest of markdown still works</a></h2>
+<p>A single inline image is not a gallery; it renders as a normal centered figure:</p>
+<p><img alt="A lone lighthouse" decoding="async" loading="lazy" src="https://picsum.photos/seed/plym-solo/1200/500"></p>
+<blockquote>
+<p>The goal was a CMS that nginx can serve entirely on its own — so every feature
+has to survive with zero client-side JavaScript.</p>
+</blockquote>
+<p>Other niceties the engine supports out of the box:</p>
+<ul>
+<li><strong>Tables</strong> with accent-underlined headers</li>
+<li><del>Strikethrough</del> and task lists</li>
+<li>Auto-linked, anchored headings feeding the table of contents</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>JavaScript needed</th>
+<th>SEO-friendly</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Gallery</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Code highlight</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Table of contents</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<ul class="task-list">
+<li class="task-list-item"><input type="checkbox" disabled checked/> Add the gallery fence</li>
+<li class="task-list-item"><input type="checkbox" disabled checked/> Keep code highlighting intact</li>
+<li class="task-list-item"><input type="checkbox" disabled/> Ship your own photo essay</li>
+</ul>
+<p>That last box is yours to check.</p>
+    </div>
+
+    
+
+    <div class="plym-author">
+      
+        <div class="plym-author-avatar plym-author-initials">
+          P
+        </div>
+      
+      <div class="plym-author-body">
+        <p class="plym-author-kicker">Written by</p>
+        <p class="plym-author-name">Preview</p>
+        
+      </div>
+    </div>
+
+  </article>
+
+  <div class="plym-right-col" aria-hidden="true"></div>
+
+</div>
+
+<footer class="plym-footer">
+  Powered by <a href="https://plym.io">plym</a>
+</footer>
+</body>
+</html>

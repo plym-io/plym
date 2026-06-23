@@ -328,3 +328,29 @@ a:focus-visible   outline: 2px solid var(--color-accent);
   color: var(--n-muted);
   margin: 0;
 }
+
+.plym-content .plym-gallery {
+  display: flex;
+  gap: 0.75rem;
+  margin: 2.5em 0;
+  padding-bottom: 0.6rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--plym-border) transparent;
+}
+
+.plym-content .plym-gallery img {
+  flex: 0 0 auto;
+  width: min(80%, 480px);
+  height: clamp(220px, 42vh, 380px);
+  object-fit: cover;
+  border-radius: 8px;
+  margin: 0;
+  scroll-snap-align: center;
+}
+
+@media (max-width: 680px) {
+  .plym-content .plym-gallery img { width: 88%; }
+}
