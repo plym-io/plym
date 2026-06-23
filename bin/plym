@@ -226,7 +226,7 @@ restart_caddy() {
 }
 
 apply() {
-    _build=0; _admin=0; _caddy=0; _render=0
+    _build=0; _admin=0; _caddy=0; _render=0; ADMIN_RC=0
     for _f in "$@"; do
         case "$_f" in
             --build)  _build=1 ;;
@@ -235,7 +235,11 @@ apply() {
             --render) _render=1 ;;
         esac
     done
-    if [ "$_admin" = 1 ]; then spin "Fetching admin bundle ($ADMIN_VERSION)" fetch_admin "$ADMIN_VERSION" "$ADMIN_DIR" || return 1; fi
+    if [ "$_admin" = 1 ]; then
+        spin "Fetching admin bundle ($ADMIN_VERSION)" fetch_admin "$ADMIN_VERSION" "$ADMIN_DIR"
+        ADMIN_RC=$?
+        [ "$ADMIN_RC" -eq 1 ] && return 1
+    fi
     if [ "$_build" = 1 ]; then
         _svcs=api; mcp_enabled && _svcs="api mcp"
         spin "Rebuilding api image" docker compose build $_svcs || return 1
@@ -976,8 +980,12 @@ sync_cli() {
 cmd_admin_update() {
     enter_project
     note "Refetching the admin app (${ADMIN_VERSION:-no PLYM_ADMIN_VERSION set}) for $PROJECT_LABEL"
-    apply --admin
-    say "Admin updated."
+    apply --admin || return 1
+    if [ "$ADMIN_RC" -eq 2 ]; then
+        warn "Admin not updated — kept the existing bundle (see above)."
+        return 1
+    fi
+    say "Admin updated to $ADMIN_VERSION."
 }
 
 cmd_update() {
@@ -988,10 +996,11 @@ cmd_update() {
     spin "Pulling latest plym" git pull --ff-only
     after=$(git rev-parse HEAD)
     sync_cli
-    apply --build --admin --caddy --render
+    apply --build --admin --caddy --render || fail "Update failed — see the error above."
     warn_prefix_drift
+    [ "$ADMIN_RC" -eq 2 ] && warn "Admin bundle was not refreshed — kept the existing one (see above)."
     if [ "$before" = "$after" ]; then
-        say "Already on the latest commit — image, admin bundle and renders refreshed."
+        say "Already on the latest commit — image and renders refreshed."
     else
         say "Updated $(printf '%s' "$before" | cut -c1-7) → $(printf '%s' "$after" | cut -c1-7)."
     fi

@@ -187,7 +187,7 @@ fetch_admin() {
     if [ "$_had" -eq 1 ]; then
         warn "Could not fetch admin $_ver: $_why"
         warn "Keeping the existing admin bundle in $_dest — it was left untouched."
-        return 0
+        return 2
     fi
     warn "Could not fetch admin $_ver: $_why"
     warn "No admin bundle is present yet — the admin UI stays unavailable until 'plym admin update' succeeds."
