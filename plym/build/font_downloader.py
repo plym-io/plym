@@ -1,5 +1,5 @@
 import re
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import aiofiles
 import aiohttp
@@ -18,7 +18,7 @@ class WebFontDownloader:
     def _url(self) -> str:
         return (
             f"{BASE_URL}?family={self._heading}:wght@600;900&family={self._body}"
-            f"&display=swap&text={TEXT}"
+            f"&display=swap&text={quote(TEXT)}"
         )
 
     async def download(self) -> str:
