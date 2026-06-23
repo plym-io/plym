@@ -206,9 +206,17 @@ refresh_all_posts() {
     return 0
 }
 
+mcp_enabled() {
+    case ",$(grep '^COMPOSE_PROFILES=' .env 2>/dev/null | cut -d= -f2- | head -1)," in
+        *",mcp,"*) return 0 ;;
+    esac
+    return 1
+}
+
 restart_api() {
     docker compose up -d
     docker compose restart api
+    mcp_enabled && docker compose restart mcp
     wait_for_health
 }
 
@@ -228,7 +236,10 @@ apply() {
         esac
     done
     if [ "$_admin" = 1 ]; then spin "Fetching admin bundle ($ADMIN_VERSION)" fetch_admin "$ADMIN_VERSION" "$ADMIN_DIR" || return 1; fi
-    if [ "$_build" = 1 ]; then spin "Rebuilding api image" docker compose build api || return 1; fi
+    if [ "$_build" = 1 ]; then
+        _svcs=api; mcp_enabled && _svcs="api mcp"
+        spin "Rebuilding api image" docker compose build $_svcs || return 1
+    fi
     spin "Restarting api" restart_api || return 1
     if [ "$_caddy" = 1 ]; then spin "Reloading caddy" restart_caddy || return 1; fi
     if [ "$_render" = 1 ]; then spin "Re-rendering published posts" refresh_all_posts || return 1; fi
