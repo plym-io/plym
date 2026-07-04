@@ -69,13 +69,34 @@
 	handle_path {$PLYM_BLOG_PREFIX:/blog}/* {
 		root * /srv/storage/.generated
 
-		import /etc/caddy/ai-crawlers.caddy
+		@md {
+			header Accept *text/markdown*
+			file {path}.md
+		}
+		handle @md {
+			rewrite * {path}.md
+			header Content-Type "text/markdown; charset=utf-8"
+			header Cache-Control "public, max-age=300"
+			header Vary "Accept"
+			file_server
+		}
+
+		@mdfile {
+			path_regexp mdslug ^/(?P<base>[a-z0-9-]+)\.md$
+			file {path}
+		}
+		handle @mdfile {
+			header Content-Type "text/markdown; charset=utf-8"
+			header Cache-Control "public, max-age=300"
+			header Link `<https://{host}{$PLYM_BLOG_PREFIX:/blog}/{re.mdslug.base}>; rel="canonical"`
+			file_server
+		}
 
 		@page file {path}.html
 		handle @page {
 			rewrite * {path}.html
 			header Cache-Control "public, max-age=300, stale-while-revalidate=60"
-			header Vary "User-Agent, Accept"
+			header Vary "Accept"
 			file_server
 		}
 		handle {

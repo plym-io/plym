@@ -1,6 +1,8 @@
 import httpx
 import pytest
 
+from tests.conftest import TEST_MODE
+
 
 @pytest.mark.asyncio
 async def test_create_publish_refresh_serve_delete(
@@ -210,6 +212,56 @@ async def test_unpublish_removes_rendered_file(
         r = await client.get(f"/blog/{unique_slug}")
         assert r.status_code == 404
     finally:
+        await client.delete(f"/api/posts/{post_id}", headers=auth_headers)
+
+
+@pytest.mark.asyncio
+async def test_refresh_draft_does_not_create_served_file(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], unique_slug: str
+) -> None:
+    r = await client.post(
+        "/api/posts",
+        json={"title": "still a draft", "slug": unique_slug, "content": "# secret"},
+        headers=auth_headers,
+    )
+    post_id = r.json()["id"]
+    try:
+        r = await client.post(f"/api/posts/{post_id}/refresh", headers=auth_headers)
+        assert r.status_code == 200
+        assert not r.json()["rendered_path"]
+
+        r = await client.get(f"/blog/{unique_slug}")
+        assert r.status_code == 404
+    finally:
+        await client.delete(f"/api/posts/{post_id}", headers=auth_headers)
+
+
+@pytest.mark.asyncio
+async def test_refresh_draft_removes_stale_rendered_file(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], unique_slug: str
+) -> None:
+    if TEST_MODE != "inprocess":
+        pytest.skip("needs direct access to the generated dir to plant a stale file")
+    from plym.settings import settings
+
+    r = await client.post(
+        "/api/posts",
+        json={"title": "stale draft", "slug": unique_slug, "content": "# secret"},
+        headers=auth_headers,
+    )
+    post_id = r.json()["id"]
+    stale = settings.generated_dir / f"{unique_slug}.html"
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_text("<html>leaked draft</html>", encoding="utf-8")
+    try:
+        r = await client.post(f"/api/posts/{post_id}/refresh", headers=auth_headers)
+        assert r.status_code == 200
+        assert not stale.exists()
+
+        r = await client.get(f"/blog/{unique_slug}")
+        assert r.status_code == 404
+    finally:
+        stale.unlink(missing_ok=True)
         await client.delete(f"/api/posts/{post_id}", headers=auth_headers)
 
 

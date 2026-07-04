@@ -170,6 +170,11 @@ class PostService(Traced):
 
     async def refresh(self, post_id: int) -> Post:
         post = await self.get(post_id)
+        if post.status is not PostStatus.PUBLISHED:
+            self._pipeline.remove_rendered(post.slug)
+            await self._posts.set_rendered_path(post.id, "")
+            await self._session.commit()
+            return await self.get(post_id)
         result = await self._pipeline.render_and_persist(
             slug=post.slug,
             title=post.title,
