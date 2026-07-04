@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPO_URL="${PLYM_REPO_URL:-https://github.com/plym-io/plym.git}"
+IMAGE="${PLYM_IMAGE:-plymio/plym:latest}"
 INSTALL_DIR="${PLYM_DIR:-plym}"
 INSTALL_URL="${PLYM_INSTALL_URL:-https://raw.githubusercontent.com/plym-io/plym/main/install.sh}"
 VERBOSE="${PLYM_VERBOSE:-0}"
@@ -21,7 +21,7 @@ on_exit() {
     [ "$code" -eq 0 ] && exit 0
     printf "\n%s✗%s Installation failed (exit %s) — the actual error is shown above.\n" "$ACCENT" "$RESET" "$code" >&2
     if [ -n "$REINSTALL_AVAILABLE" ]; then
-        printf "  Wipe this attempt and reinstall from source:  %splym reinstall%s\n" "$BOLD" "$RESET" >&2
+        printf "  Wipe this attempt and reinstall:  %splym reinstall%s\n" "$BOLD" "$RESET" >&2
     else
         printf "  Fix the problem above, then run the installer again.\n" >&2
     fi
@@ -85,7 +85,7 @@ fi
 
 note "Logo, colors and other settings live in config.yaml — change them anytime."
 
-for tool in docker git openssl curl; do
+for tool in docker openssl curl; do
     command -v "$tool" >/dev/null 2>&1 || fail "$tool is required and not in PATH"
 done
 docker compose version >/dev/null 2>&1 || fail "docker compose v2 is required"
@@ -103,13 +103,25 @@ fi
 
 [ -e "$INSTALL_DIR" ] && fail "Directory '$INSTALL_DIR' already exists. Remove it or set PLYM_DIR=somewhere-else"
 
-say "Fetching plym from $REPO_URL"
-git clone --depth 1 "$REPO_URL" "$INSTALL_DIR" || fail "Could not clone $REPO_URL — see the git output above."
+say "Pulling plym from Docker Hub ($IMAGE)"
+if ! docker pull "$IMAGE"; then
+    docker image inspect "$IMAGE" >/dev/null 2>&1 \
+        || fail "Could not pull $IMAGE — see the docker output above."
+    note "Pull failed — using the local copy of $IMAGE."
+fi
+
+mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
+CID=$(docker create "$IMAGE") || fail "Could not create a container from $IMAGE."
+if ! docker cp "$CID:/opt/plym/dist/." .; then
+    docker rm -f "$CID" >/dev/null 2>&1 || true
+    fail "Could not extract the plym files from $IMAGE — is this a plym image?"
+fi
+docker rm -f "$CID" >/dev/null 2>&1 || true
 
 # From here on, use the shared library (identical to the plym CLI's helpers).
 . "$(pwd)/bin/plym-lib.sh"
-HEALTH_TIMEOUT_SECONDS=120   # first boot pulls images and runs migrations — give it room
+HEALTH_TIMEOUT_SECONDS=120   # first boot pulls postgres/caddy and runs migrations — give it room
 
 install_cli
 PLYM_HOME="${PLYM_CONFIG_HOME:-$HOME/.config/plym}"
@@ -141,6 +153,9 @@ sed -i.bak "s|^PLYM_SUPERUSER_EMAIL=.*|PLYM_SUPERUSER_EMAIL=$ADMIN_EMAIL|" .env
 sed -i.bak "s|^PLYM_SUPERUSER_PASSWORD=.*|PLYM_SUPERUSER_PASSWORD=$ADMIN_PASSWORD|" .env
 sed -i.bak "s|^PLYM_DB_PASSWORD=.*|PLYM_DB_PASSWORD=$ADMIN_PASSWORD|" .env
 rm -f .env.bak
+if [ -n "${PLYM_IMAGE:-}" ]; then
+    printf 'PLYM_IMAGE=%s\n' "$PLYM_IMAGE" >> .env
+fi
 
 cp config.yaml.example config.yaml
 sed -i.bak "s|^name:.*|name: $NAME|" config.yaml
@@ -152,7 +167,7 @@ ADMIN_VERSION=$(grep '^PLYM_ADMIN_VERSION=' .env 2>/dev/null | cut -d= -f2- | he
 mkdir -p admin
 fetch_admin "$ADMIN_VERSION" "$(pwd)/admin" || true
 
-spin "Building images — first run takes about a minute" docker compose up -d --build \
+spin "Starting containers — first run downloads postgres and caddy" docker compose up -d \
     || fail "docker compose failed (see message above)."
 
 spin "Starting plym" wait_for_health \

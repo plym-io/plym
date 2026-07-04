@@ -14,9 +14,7 @@ services:
       retries: 10
 
   api:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.api
+    image: ${PLYM_IMAGE:-plymio/plym:latest}
     env_file: .env
     labels:
       io.plym.instance: "true"
@@ -25,7 +23,7 @@ services:
         condition: service_healthy
     volumes:
       - ./config.yaml:/app/config.yaml:ro
-      - ./plym:/app/plym:ro
+      - ./templates:/app/plym/templates:ro
       - ./storage:/app/storage
       - ./admin:/app/admin:ro
 
@@ -42,9 +40,7 @@ services:
       - ./storage:/srv/storage:ro
 
   mcp:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.api
+    image: ${PLYM_IMAGE:-plymio/plym:latest}
     profiles: ["mcp"]
     env_file: .env
     environment:
@@ -54,8 +50,6 @@ services:
     command: ["python", "-m", "plym.mcp"]
     depends_on:
       - api
-    volumes:
-      - ./plym:/app/plym:ro
     ports:
       - "127.0.0.1:${PLYM_MCP_PUBLISH_PORT:-9369}:8000"
 

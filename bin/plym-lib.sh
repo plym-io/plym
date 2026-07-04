@@ -3,6 +3,7 @@
 : "${HEALTH_TIMEOUT_SECONDS:=60}"
 : "${PLYM_LOG_TAIL:=200}"
 : "${PLYM_ADMIN_URL:=https://github.com/plym-io/plym-admin/releases/download}"
+: "${PLYM_DEFAULT_IMAGE:=plymio/plym:latest}"
 
 BOLD=$(printf '\033[1m')
 DIM=$(printf '\033[2m')
@@ -87,6 +88,24 @@ http() {
         [ -n "$HTTP_BODY" ] && printf '%s\n' "$HTTP_BODY" | box "response $HTTP_CODE"
     fi
     case "$HTTP_CODE" in 2*) return 0 ;; *) return 1 ;; esac
+}
+
+plym_image() {
+    _img=$(grep '^PLYM_IMAGE=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    printf '%s' "${_img:-$PLYM_DEFAULT_IMAGE}"
+}
+
+image_id() { docker image inspect -f '{{.Id}}' "$1" 2>/dev/null; }
+
+extract_dist() {
+    _img="$1"; _dest="$2"
+    _cid=$(docker create "$_img") || return 1
+    if docker cp "$_cid:/opt/plym/dist/." "$_dest"; then
+        docker rm -f "$_cid" >/dev/null 2>&1 || true
+        return 0
+    fi
+    docker rm -f "$_cid" >/dev/null 2>&1 || true
+    return 1
 }
 
 svc_cid()   { docker compose ps -aq "$1" 2>/dev/null | head -1; }

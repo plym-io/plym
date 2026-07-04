@@ -100,7 +100,7 @@ enter_project() {
     # reuse the previous one. Ensure it exists and is owned by us before any `docker compose up`.
     ADMIN_DIR="$PROJECT_ROOT/admin"
     ADMIN_VERSION=$(grep '^PLYM_ADMIN_VERSION=' .env 2>/dev/null | cut -d= -f2- | head -1)
-    mkdir -p "$ADMIN_DIR"
+    mkdir -p "$ADMIN_DIR" "$PROJECT_ROOT/templates"
 }
 
 usage() {
@@ -120,16 +120,17 @@ Usage:
                                        Either way, every MCP tool authenticates with your plym email +
                                        password.
   plym disable mcp                     Stop the MCP server and remove any reverse proxy config for it.
-  plym template install <name> [ref]   Switch to a template. Uses the local copy in plym/templates/
+  plym template install <name> [ref]   Switch to a template. Uses the local copy in templates/
                                        if present, else downloads it. Pass --update to force a fresh
                                        download. Default ref: main. Refs are a branch, tag, or SHA.
   plym admin update                    Refetch the admin bundle into ./admin and restart the api. If the
                                        fetch fails the existing admin bundle is kept (never removed).
-  plym update                          Pull the latest plym, rebuild the api image, refetch the admin
-                                       bundle, reload caddy, and re-render. Updates the whole stack.
-  plym reinstall [--yes]               Wipe the stack AND its database volume, then reinstall from
-                                       source. Destructive: deletes all posts, regenerates the admin
-                                       password. Asks for confirmation unless --yes.
+  plym update                          Pull the latest plym image from Docker Hub, refresh the project
+                                       files, refetch the admin bundle, reload caddy, and re-render.
+                                       Updates the whole stack.
+  plym reinstall [--yes]               Wipe the stack AND its database volume, then reinstall from the
+                                       latest plym image. Destructive: deletes all posts, regenerates
+                                       the admin password. Asks for confirmation unless --yes.
   plym reload                          Restart the api to apply config.yaml. No re-render — use for
                                        runtime-only changes (http_cache, pagination, robots, media).
   plym rebuild                         Restart the api and re-render every published post. Use when a
@@ -226,10 +227,9 @@ restart_caddy() {
 }
 
 apply() {
-    _build=0; _admin=0; _caddy=0; _render=0; ADMIN_RC=0
+    _admin=0; _caddy=0; _render=0; ADMIN_RC=0
     for _f in "$@"; do
         case "$_f" in
-            --build)  _build=1 ;;
             --admin)  _admin=1 ;;
             --caddy)  _caddy=1 ;;
             --render) _render=1 ;;
@@ -239,10 +239,6 @@ apply() {
         spin "Fetching admin bundle ($ADMIN_VERSION)" fetch_admin "$ADMIN_VERSION" "$ADMIN_DIR"
         ADMIN_RC=$?
         [ "$ADMIN_RC" -eq 1 ] && return 1
-    fi
-    if [ "$_build" = 1 ]; then
-        _svcs=api; mcp_enabled && _svcs="api mcp"
-        spin "Rebuilding api image" docker compose build $_svcs || return 1
     fi
     spin "Restarting api" restart_api || return 1
     if [ "$_caddy" = 1 ]; then spin "Reloading caddy" restart_caddy || return 1; fi
@@ -268,7 +264,7 @@ warn_prefix_drift() {
 }
 
 template_exists_local() {
-    [ -d "plym/templates/$1" ]
+    [ -d "templates/$1" ]
 }
 
 set_active_template() {
@@ -283,7 +279,7 @@ set_active_template() {
 
 fetch_template_remote() {
     name="$1"; ref="$2"
-    target="plym/templates/$name"
+    target="templates/$name"
     tmp=$(mktemp -d)
     url="https://codeload.github.com/$REPO_OWNER/$REPO_NAME/tar.gz/$ref"
     if ! curl -fsSL "$url" \
@@ -990,19 +986,23 @@ cmd_admin_update() {
 
 cmd_update() {
     enter_project
-    [ -d .git ] || fail "Not a git checkout — this blog wasn't installed via the plym installer, so there's nothing to pull. Update it the way you deployed it."
     note "Updating $PROJECT_LABEL (:$PORT)"
-    before=$(git rev-parse HEAD)
-    spin "Pulling latest plym" git pull --ff-only
-    after=$(git rev-parse HEAD)
+    image=$(plym_image)
+    before=$(image_id "$image")
+    spin "Pulling $image" docker compose pull api || fail "Could not pull $image — see the error above."
+    after=$(image_id "$image")
+    spin "Refreshing project files from the image" extract_dist "$image" "$PROJECT_ROOT" \
+        || fail "Could not extract the plym files from $image."
     sync_cli
-    apply --build --admin --caddy --render || fail "Update failed — see the error above."
+    apply --admin --caddy --render || fail "Update failed — see the error above."
     warn_prefix_drift
     [ "$ADMIN_RC" -eq 2 ] && warn "Admin bundle was not refreshed — kept the existing one (see above)."
-    if [ "$before" = "$after" ]; then
-        say "Already on the latest commit — image and renders refreshed."
+    if [ -z "$before" ]; then
+        say "Installed image $(printf '%s' "$after" | cut -c8-19)."
+    elif [ "$before" = "$after" ]; then
+        say "Already on the latest image — project files and renders refreshed."
     else
-        say "Updated $(printf '%s' "$before" | cut -c1-7) → $(printf '%s' "$after" | cut -c1-7)."
+        say "Updated $(printf '%s' "$before" | cut -c8-19) → $(printf '%s' "$after" | cut -c8-19)."
     fi
 }
 
@@ -1023,7 +1023,7 @@ cmd_reinstall() {
     dir=$(basename "$PROJECT_ROOT")
     parent=$(dirname "$PROJECT_ROOT")
 
-    note "Reinstalling $PROJECT_LABEL from source."
+    note "Reinstalling $PROJECT_LABEL from the latest plym image."
     note "This DELETES the database volume (every post) and regenerates the admin password. Back up first if you need the content."
     if [ -z "$yes" ]; then
         [ -e /dev/tty ] || fail "Refusing to reinstall non-interactively. Re-run with: plym reinstall --yes"

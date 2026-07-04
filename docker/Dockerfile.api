@@ -17,6 +17,15 @@ RUN uv pip install --system --no-cache .
 # aborting the build, and lets a failed refetch fall back to the previously-installed bundle.
 RUN mkdir -p /app/admin
 
+# Everything a running blog needs on the host is staged in /opt/plym/dist. The installer and
+# `plym update` extract it with docker cp, so pulling this image is the whole distribution —
+# no git checkout on the host.
+COPY docker-compose.yml .env.example config.yaml.example /opt/plym/dist/
+COPY docker/Caddyfile /opt/plym/dist/docker/Caddyfile
+COPY bin/plym bin/plym-lib.sh /opt/plym/dist/bin/
+COPY docs/HELLO.md /opt/plym/dist/docs/HELLO.md
+COPY plym/templates /opt/plym/dist/templates
+
 EXPOSE 8000
 
 CMD ["uvicorn", "plym.main:app", "--host", "0.0.0.0", "--port", "8000"]
