@@ -14,9 +14,6 @@ jobs:
   e2e:
     name: end-to-end against compose stack
     runs-on: ubuntu-latest
-
-    # The shipped compose file pulls plymio/plym from Docker Hub; the build override
-    # makes every docker compose step here build and test THIS checkout instead.
     env:
       COMPOSE_FILE: docker-compose.yml:docker-compose.build.yml
 
