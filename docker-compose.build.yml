@@ -1,0 +1,15 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    volumes:
+      - ./plym:/app/plym:ro
+      - ./plym/templates:/app/plym/templates:ro
+
+  mcp:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    volumes:
+      - ./plym:/app/plym:ro
