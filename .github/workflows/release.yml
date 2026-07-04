@@ -1,18 +1,25 @@
-name: Release Docker Image
+name: Test and Release (main)
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
-  group: docker-release
+  group: main-integration
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
+  e2e:
+    name: Complete Integration Test
+    uses: ./.github/workflows/e2e.yml
+
   release:
+    name: Publish Docker Image
+    needs: e2e
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
