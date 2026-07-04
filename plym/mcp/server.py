@@ -1,7 +1,7 @@
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_http_headers
-from pydantic import ValidationError
+from pydantic import Base64Bytes, ValidationError
 
 from plym.mcp.client import PlymClient
 from plym.mcp.processing import fetch_bytes
@@ -48,10 +48,26 @@ async def create_post(post: PostCreate) -> Post:
 
 
 @mcp.tool
-async def upload_media(url: str) -> MediaItem:
-    """Upload an image from a URL to plym; pass the returned `url` as a post's `cover`."""
-    data, filename = await fetch_bytes(url)
-    return await _client.upload_media(_credentials(), data, filename)
+async def upload_media(
+    url: str | None = None,
+    data: Base64Bytes | None = None,
+    filename: str | None = None,
+) -> MediaItem:
+    """Upload an image to plym; pass the returned `url` as a post's `cover`.
+
+    Provide either `url` (a publicly reachable image) or `data`
+    (base64-encoded file bytes, for images on the user's machine),
+    optionally naming the upload with `filename`.
+    """
+    if url is not None and data is not None:
+        raise ToolError("Pass either `url` or `data`, not both.")
+    if url is not None:
+        payload, name = await fetch_bytes(url)
+    elif data is not None:
+        payload, name = bytes(data), filename or "upload"
+    else:
+        raise ToolError("Pass `url` for a remote image, or `data` with base64-encoded file bytes.")
+    return await _client.upload_media(_credentials(), payload, name)
 
 
 @mcp.tool
