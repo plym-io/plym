@@ -15,6 +15,8 @@ from plym.api.blog_router import posts_router as blog_posts_router
 from plym.api.config_router import router as config_router
 from plym.api.media_router import router as media_router
 from plym.api.posts_router import router as posts_router
+from plym.api.search_router import api_router as search_api_router
+from plym.api.search_router import index_json_router
 from plym.api.seo_router import router as seo_router
 from plym.api.tags_router import router as tags_router
 from plym.api.users_router import router as users_router
@@ -111,7 +113,9 @@ app.include_router(posts_router)
 app.include_router(media_router)
 app.include_router(tags_router)
 app.include_router(config_router)
+app.include_router(search_api_router)
 app.include_router(seo_router)
+app.include_router(index_json_router)
 app.include_router(index_router)
 
 class AdminSPA(StaticFiles):
@@ -141,6 +145,7 @@ _admin_available = _admin_dir.is_dir() and (_admin_dir / "index.html").exists()
 
 if _prefix:
     app.include_router(seo_router, prefix=_prefix, include_in_schema=False)
+    app.include_router(index_json_router, prefix=_prefix, include_in_schema=False)
     app.add_api_route(_prefix, serve_index, response_class=HTMLResponse, include_in_schema=False)
     app.add_api_route(
         f"{_prefix}/", serve_index, response_class=HTMLResponse, include_in_schema=False

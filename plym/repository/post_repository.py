@@ -260,3 +260,22 @@ class PostRepository(Traced):
             {"after": after, "limit": limit},
         )
         return [dict(r) for r in result.mappings().all()]
+
+    async def list_published_for_index_after(self, *, after: int, limit: int) -> list[dict]:
+        result = await self._session.execute(
+            text(
+                f"""
+                SELECT p.id, p.slug, p.title, p.excerpt, p.content, p.reading_time,
+                       p.published_at, p.updated_at,
+                       u.display_name,
+                {_TAGS_JSON}
+                FROM public.pl_posts p
+                JOIN public.pl_users u ON u.id = p.author_id
+                WHERE p.status = 'published' AND p.id > :after
+                ORDER BY p.id
+                LIMIT :limit
+                """
+            ),
+            {"after": after, "limit": limit},
+        )
+        return [_with_tags(r) for r in result.mappings().all()]
