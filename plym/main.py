@@ -18,6 +18,7 @@ from plym.api.posts_router import router as posts_router
 from plym.api.search_router import api_router as search_api_router
 from plym.api.search_router import index_json_router
 from plym.api.seo_router import router as seo_router
+from plym.api.submissions_router import router as submissions_router
 from plym.api.tags_router import router as tags_router
 from plym.api.users_router import router as users_router
 from plym.build.pipeline import run_build
@@ -113,6 +114,7 @@ app.include_router(posts_router)
 app.include_router(media_router)
 app.include_router(tags_router)
 app.include_router(config_router)
+app.include_router(submissions_router)
 app.include_router(search_api_router)
 app.include_router(seo_router)
 app.include_router(index_json_router)
