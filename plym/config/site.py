@@ -88,6 +88,7 @@ class HttpCacheConfig(BaseModel):
 
 class SiteConfig(BaseModel):
     name: str = "Plym"
+    description: str | None = None
     website: str = "plym.local"
     blog_home: str = "plym.local/blog"
     blog_prefix: str = "/blog"

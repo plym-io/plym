@@ -261,6 +261,21 @@ class PostRepository(Traced):
         )
         return [dict(r) for r in result.mappings().all()]
 
+    async def list_published_meta_after(self, *, after: int, limit: int) -> list[dict]:
+        result = await self._session.execute(
+            text(
+                """
+                SELECT id, slug, title, excerpt
+                FROM public.pl_posts
+                WHERE status = 'published' AND id > :after
+                ORDER BY id
+                LIMIT :limit
+                """
+            ),
+            {"after": after, "limit": limit},
+        )
+        return [dict(r) for r in result.mappings().all()]
+
     async def list_published_for_index_after(self, *, after: int, limit: int) -> list[dict]:
         result = await self._session.execute(
             text(

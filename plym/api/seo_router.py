@@ -13,6 +13,18 @@ from plym.repository.post_repository import PostRepository
 router = APIRouter(tags=["SEO"], include_in_schema=False)
 
 
+def _collapse(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _llms_entry(base: str, row: dict) -> str:
+    title = _collapse(row["title"]).replace("[", "\\[").replace("]", "\\]")
+    entry = f"- [{title}]({base}/{row['slug']})"
+    if row.get("excerpt"):
+        entry = f"{entry}: {_collapse(row['excerpt'])}"
+    return entry
+
+
 @router.get("/sitemap.xml")
 async def sitemap(
     site: SiteConfig = Depends(site_config),
@@ -51,6 +63,39 @@ async def sitemap(
     if header:
         headers["Cache-Control"] = header
     return Response(content=body, media_type="application/xml", headers=headers)
+
+
+@router.get("/llms.txt")
+async def llms_txt(
+    site: SiteConfig = Depends(site_config),
+    session: AsyncSession = Depends(db_session),
+) -> Response:
+    base = site.public_blog_url()
+    posts = PostRepository(session)
+
+    entries = []
+    after = 0
+    while True:
+        chunk = await posts.list_published_meta_after(after=after, limit=1000)
+        if not chunk:
+            break
+        entries.extend(_llms_entry(base, row) for row in chunk)
+        after = chunk[-1]["id"]
+        if len(chunk) < 1000:
+            break
+
+    sections = [f"# {site.name}"]
+    if site.description:
+        sections.append(f"> {_collapse(site.description)}")
+    sections.append("## Posts")
+    if entries:
+        sections.append("\n".join(entries))
+    body = "\n\n".join(sections) + "\n"
+    headers = {}
+    header = site.http_cache.header_for_index()
+    if header:
+        headers["Cache-Control"] = header
+    return Response(content=body, media_type="text/markdown", headers=headers)
 
 
 @router.get("/robots.txt", response_class=PlainTextResponse)

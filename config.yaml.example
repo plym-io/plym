@@ -1,4 +1,5 @@
 name: Plym
+# description: A short blurb about the blog — shown as the summary in llms.txt.
 website: plym.local
 blog_home: plym.local/blog
 blog_prefix: /blog

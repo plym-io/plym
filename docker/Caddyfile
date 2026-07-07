@@ -70,7 +70,7 @@
 		root * /srv/storage/.generated
 
 		@md {
-			header Accept *text/markdown*
+			header_regexp Accept ^\s*text/markdown\s*(,|$)
 			file {path}.md
 		}
 		handle @md {
