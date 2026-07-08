@@ -60,6 +60,7 @@ async def test_collect_stores_payload_and_user_agent(
     assert row["payload"] == payload
     assert row["user_agent"] == "acme-bot/1.0"
     assert _is_ip(row["client_addr"])
+    assert row["additional_ctx"] is None
 
 
 @pytest.mark.asyncio

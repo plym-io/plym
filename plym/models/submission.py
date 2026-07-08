@@ -11,6 +11,7 @@ class Submission(ORMModel):
     payload: dict[str, Any]
     user_agent: str | None = None
     client_addr: IPvAnyAddress | None = None
+    additional_ctx: dict[str, Any] | None = None
     created_at: datetime
 
 

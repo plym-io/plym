@@ -38,7 +38,7 @@ class SubmissionRepository(Traced):
         result = await self._session.execute(
             text(
                 """
-                SELECT id, payload, user_agent, client_addr, created_at,
+                SELECT id, payload, user_agent, client_addr, additional_ctx, created_at,
                        COUNT(*) OVER() AS total
                 FROM public.pl_submissions
                 ORDER BY created_at DESC, id DESC
