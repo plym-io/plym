@@ -1,6 +1,12 @@
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, TemplateNotFound, select_autoescape
+from jinja2 import (
+    Environment,
+    FileSystemLoader,
+    StrictUndefined,
+    TemplateNotFound,
+    select_autoescape,
+)
 
 from plym.config.site import SiteConfig
 from plym.exceptions.posts import TemplateNotFoundError
@@ -21,6 +27,7 @@ class TemplateRenderer:
         self._chrome_env = Environment(
             loader=FileSystemLoader(str(_CHROME_DIR)),
             autoescape=select_autoescape(["html", "xml"]),
+            undefined=StrictUndefined,
             enable_async=False,
         )
 

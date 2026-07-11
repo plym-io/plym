@@ -9,6 +9,7 @@ from plym.render.cache import get_store
 from plym.render.html_assembler import HtmlAssembler
 from plym.render.markdown_renderer import MarkdownRenderer
 from plym.render.reading_time import ReadingTimeCalculator
+from plym.render.stamp import compute_render_stamp
 from plym.render.template_renderer import TemplateRenderer
 from plym.settings import settings
 
@@ -29,6 +30,11 @@ class PostPipeline:
         self._template = TemplateRenderer(site)
         self._reading = ReadingTimeCalculator(site.reading.words_per_minute)
         self._store = get_store()
+        self._stamp = compute_render_stamp(site, css, prism_js)
+
+    @property
+    def render_stamp(self) -> str:
+        return self._stamp
 
     def slugify(self, value: str) -> str:
         return slugify(value, regex_pattern=r"[^a-z0-9]+")
@@ -48,6 +54,51 @@ class PostPipeline:
                 for faq in faqs
             ],
         }
+        return json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
+
+    def _person_jsonld(self, author: dict) -> dict:
+        person: dict = {"@type": "Person", "name": author.get("display_name")}
+        if author.get("avatar_url"):
+            person["image"] = author["avatar_url"]
+        same_as = [link["url"] for link in author.get("links") or []]
+        if same_as:
+            person["sameAs"] = same_as
+        return person
+
+    def _publisher_jsonld(self) -> dict:
+        publisher: dict = {"@type": "Organization", "name": self._site.name}
+        if self._site.logo:
+            publisher["logo"] = {"@type": "ImageObject", "url": self._site.logo}
+        return publisher
+
+    def _article_jsonld(
+        self,
+        *,
+        title: str,
+        excerpt: str | None,
+        cover: str | None,
+        canonical: str,
+        author: dict,
+        published_at: datetime | None,
+        updated_at: datetime | None,
+    ) -> str:
+        payload: dict = {
+            "@context": "https://schema.org",
+            "@type": "BlogPosting",
+            "headline": title,
+            "url": canonical,
+            "mainEntityOfPage": {"@type": "WebPage", "@id": canonical},
+            "author": self._person_jsonld(author),
+            "publisher": self._publisher_jsonld(),
+        }
+        if excerpt:
+            payload["description"] = excerpt
+        if cover:
+            payload["image"] = cover
+        if published_at:
+            payload["datePublished"] = published_at.isoformat()
+        if updated_at:
+            payload["dateModified"] = updated_at.isoformat()
         return json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
 
     def reading_minutes(self, content: str) -> int:
@@ -88,8 +139,18 @@ class PostPipeline:
                 "tags": tags,
                 "faqs": faqs,
                 "faq_jsonld": self._faq_jsonld(faqs),
+                "article_jsonld": self._article_jsonld(
+                    title=title,
+                    excerpt=excerpt,
+                    cover=cover,
+                    canonical=canonical,
+                    author=author,
+                    published_at=published_at,
+                    updated_at=updated_at,
+                ),
                 "toc": toc,
-            }
+            },
+            "render_stamp": self._stamp,
         }
 
     async def render_and_persist(

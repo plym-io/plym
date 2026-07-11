@@ -41,6 +41,7 @@ def _with_tags(row) -> dict:
     data = dict(row)
     _decode_json_col(data, "tags")
     _decode_json_col(data, "faqs")
+    _decode_json_col(data, "links")
     return data
 
 
@@ -305,6 +306,25 @@ class PostRepository(Traced):
             {"after": after, "limit": limit},
         )
         return [dict(r) for r in result.mappings().all()]
+
+    async def list_published_full_after(self, *, after: int, limit: int) -> list[dict]:
+        result = await self._session.execute(
+            text(
+                f"""
+                SELECT p.*, u.display_name, u.avatar_url,
+                       COALESCE(u.links, '[]'::jsonb) AS links,
+                {_TAGS_JSON},
+                {_FAQS_JSON}
+                FROM public.pl_posts p
+                JOIN public.pl_users u ON u.id = p.author_id
+                WHERE p.status = 'published' AND p.id > :after
+                ORDER BY p.id
+                LIMIT :limit
+                """
+            ),
+            {"after": after, "limit": limit},
+        )
+        return [_with_tags(r) for r in result.mappings().all()]
 
     async def list_published_for_index_after(self, *, after: int, limit: int) -> list[dict]:
         result = await self._session.execute(

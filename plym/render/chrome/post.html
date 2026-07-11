@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="plym-render" content="{{ render_stamp }}">
   <title>{{ post.title }} — {{ site.name }}</title>
   {% if post.excerpt %}<meta name="description" content="{{ post.excerpt }}">{% endif %}
   {% if site.favicon %}<link rel="icon" href="{{ site.favicon }}">{% endif %}
@@ -11,11 +12,12 @@
   {% if post.excerpt %}<meta property="og:description" content="{{ post.excerpt }}">{% endif %}
   {% if post.cover %}<meta property="og:image" content="{{ post.cover }}">{% endif %}
   <meta property="og:type" content="article">
-  {% if post.published_at %}<meta property="article:published_time" content="{{ post.published_at }}">{% endif %}
-  {% if post.updated_at %}<meta property="article:modified_time" content="{{ post.updated_at }}">{% endif %}
+  {% if post.published_at %}<meta property="article:published_time" content="{{ post.published_at.isoformat() }}">{% endif %}
+  {% if post.updated_at %}<meta property="article:modified_time" content="{{ post.updated_at.isoformat() }}">{% endif %}
 
   <link rel="canonical" href="{{ post.canonical }}">
   {% if post.cover %}<link rel="preload" as="image" href="{{ post.cover }}" fetchpriority="high">{% endif %}
+  <script type="application/ld+json">{{ post.article_jsonld | safe }}</script>
   {% if post.faq_jsonld %}<script type="application/ld+json">{{ post.faq_jsonld | safe }}</script>{% endif %}
 </head>
 <body class="plym-post">

@@ -1,3 +1,5 @@
+import json
+import re
 import uuid
 
 import httpx
@@ -186,6 +188,47 @@ async def test_canonical_url_appears_in_rendered_html(
         served = await client.get(f"/blog/{unique_slug}")
         assert served.status_code == 200
         assert f'rel="canonical" href="{target}"' in served.text
+    finally:
+        await client.delete(f"/api/posts/{post_id}", headers=auth_headers)
+
+
+@pytest.mark.asyncio
+async def test_article_jsonld_appears_in_rendered_html(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], unique_slug: str
+) -> None:
+    r = await client.post(
+        "/api/posts",
+        json={
+            "title": "structured-data",
+            "slug": unique_slug,
+            "content": "# hi",
+            "excerpt": "an excerpt",
+            "cover": "https://example.com/cover.jpg",
+        },
+        headers=auth_headers,
+    )
+    post_id = r.json()["id"]
+    try:
+        await client.patch(
+            f"/api/posts/{post_id}", json={"status": "published"}, headers=auth_headers
+        )
+        await client.post(f"/api/posts/{post_id}/refresh", headers=auth_headers)
+        served = await client.get(f"/blog/{unique_slug}")
+        assert served.status_code == 200, served.text
+        scripts = re.findall(
+            r'<script type="application/ld\+json">(.+?)</script>', served.text, re.DOTALL
+        )
+        payloads = [json.loads(s) for s in scripts]
+        article = next(p for p in payloads if p.get("@type") == "BlogPosting")
+        assert article["headline"] == "structured-data"
+        assert article["description"] == "an excerpt"
+        assert article["image"] == "https://example.com/cover.jpg"
+        assert article["datePublished"]
+        assert article["dateModified"]
+        assert article["author"]["@type"] == "Person"
+        assert article["author"]["name"] == "Administrator"
+        assert article["publisher"]["@type"] == "Organization"
+        assert article["mainEntityOfPage"] == {"@type": "WebPage", "@id": article["url"]}
     finally:
         await client.delete(f"/api/posts/{post_id}", headers=auth_headers)
 

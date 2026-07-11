@@ -28,9 +28,10 @@ from plym.db.migrate import apply_migrations
 from plym.db.session import dispose_engine
 from plym.instrumentation.middleware import ActorMiddleware
 from plym.instrumentation.telemetry import configure_telemetry
-from plym.render.reconcile import reconcile_generated_files
 from plym.service.backup_service import BackupScheduler
 from plym.service.bootstrap import ensure_superuser
+from plym.service.post_pipeline import PostPipeline
+from plym.service.reconcile_service import reconcile_generated_files
 from plym.service.token_service import TokenService
 from plym.settings import settings
 
@@ -61,14 +62,15 @@ async def lifespan(app: FastAPI):
     await apply_migrations()
     log.info("startup: ensuring superuser")
     await ensure_superuser()
-    log.info("startup: reconciling generated files")
-    await reconcile_generated_files()
     log.info("startup: running build (fonts, prism, assets, css)")
     artifacts = await run_build(site)
     if artifacts.assets.favicon is not None:
         site.favicon = artifacts.assets.favicon.web_path
     if artifacts.assets.logo is not None:
         site.logo = artifacts.assets.logo.web_path
+
+    log.info("startup: reconciling generated files")
+    await reconcile_generated_files(PostPipeline(site, artifacts.css, artifacts.prism_js))
 
     app.state.site = site
     app.state.settings = settings
