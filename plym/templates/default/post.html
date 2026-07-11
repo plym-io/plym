@@ -52,6 +52,18 @@
       {{ post.content | safe }}
     </div>
 
+    {% if post.faqs %}
+      <section class="plym-faqs" aria-label="Frequently asked questions">
+        <h2 class="plym-faqs-title">Frequently asked questions</h2>
+        {% for faq in post.faqs %}
+          <details class="plym-faq">
+            <summary class="plym-faq-question">{{ faq.question }}</summary>
+            <div class="plym-faq-answer">{{ faq.answer }}</div>
+          </details>
+        {% endfor %}
+      </section>
+    {% endif %}
+
     {% if post.tags %}
       <ul class="plym-tags">
         {% for tag in post.tags %}<li>#{{ tag.name }}</li>{% endfor %}

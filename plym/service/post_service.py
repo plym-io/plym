@@ -1,12 +1,15 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from plym.config.site import SiteConfig
+from plym.exceptions.faqs import FaqNotFoundError
 from plym.exceptions.posts import PostNotFoundError, SlugConflictError
 from plym.instrumentation.tracer import Traced
 from plym.models.common import PostStatus
+from plym.models.faq import Faq
 from plym.models.post import Post, PostCreate, PostListItem, PostUpdate
 from plym.models.tag import Tag
 from plym.models.user import UserPublic
+from plym.repository.faq_repository import FaqRepository
 from plym.repository.post_repository import PostRepository
 from plym.repository.tag_repository import TagRepository
 from plym.service.post_pipeline import PostPipeline
@@ -18,6 +21,7 @@ class PostService(Traced):
         self._site = site
         self._posts = PostRepository(session)
         self._tags = TagRepository(session)
+        self._faqs = FaqRepository(session)
         self._pipeline = PostPipeline(site, css, prism_js)
 
     def _row_to_post(self, row: dict, tags: list[dict]) -> Post:
@@ -25,6 +29,7 @@ class PostService(Traced):
             id=row["author_id"],
             display_name=row["display_name"],
             avatar_url=row.get("avatar_url"),
+            links=row.get("links") or [],
         )
         return Post(
             id=row["id"],
@@ -37,17 +42,26 @@ class PostService(Traced):
             excerpt=row.get("excerpt"),
             cover=row.get("cover"),
             canonical_url=row.get("canonical_url"),
+            weight=row.get("weight"),
             published_at=row.get("published_at"),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             author=author,
             tags=[Tag.model_validate(t) for t in tags],
+            faqs=[Faq.model_validate(f) for f in row.get("faqs") or []],
         )
 
     async def _ensure_tags(self, names: list[str]) -> list[int]:
         pairs = [(name, self._pipeline.slugify(name)) for name in names]
         slug_to_id = await self._tags.upsert_many(pairs)
         return [slug_to_id[slug] for _, slug in pairs]
+
+    async def _sync_faqs(self, post_id: int, faq_ids: list[int]) -> None:
+        ordered = list(dict.fromkeys(faq_ids))
+        existing = await self._faqs.existing_ids(ordered)
+        if any(fid not in existing for fid in ordered):
+            raise FaqNotFoundError()
+        await self._faqs.replace_for_post(post_id, ordered)
 
     async def create(self, author_id: int, payload: PostCreate) -> Post:
         if await self._posts.slug_exists(payload.slug):
@@ -63,10 +77,13 @@ class PostService(Traced):
             cover=payload.cover,
             canonical_url=payload.canonical_url,
             reading_time=reading_time,
+            weight=payload.weight,
         )
         if payload.tags:
             tag_ids = await self._ensure_tags(payload.tags)
             await self._tags.replace_for_post(post_id, tag_ids)
+        if payload.faqs:
+            await self._sync_faqs(post_id, payload.faqs)
         await self._session.commit()
         self._pipeline.invalidate_index()
         return await self.get(post_id)
@@ -90,6 +107,8 @@ class PostService(Traced):
         if payload.tags is not None:
             tag_ids = await self._ensure_tags(payload.tags)
             await self._tags.replace_for_post(post_id, tag_ids)
+        if payload.faqs is not None:
+            await self._sync_faqs(post_id, payload.faqs)
         await self._session.commit()
 
         new_status = fields.get("status")
@@ -121,6 +140,7 @@ class PostService(Traced):
             id=r["author_id"],
             display_name=r["display_name"],
             avatar_url=r.get("avatar_url"),
+            links=r.get("links") or [],
         )
         return PostListItem(
             id=r["id"],
@@ -131,6 +151,7 @@ class PostService(Traced):
             excerpt=r.get("excerpt"),
             cover=r.get("cover"),
             canonical_url=r.get("canonical_url"),
+            weight=r.get("weight"),
             published_at=r.get("published_at"),
             created_at=r["created_at"],
             updated_at=r["updated_at"],
@@ -182,10 +203,15 @@ class PostService(Traced):
             excerpt=post.excerpt,
             cover=post.cover,
             canonical_url=post.canonical_url,
-            author={"display_name": post.author.display_name, "avatar_url": post.author.avatar_url},
+            author={
+                "display_name": post.author.display_name,
+                "avatar_url": post.author.avatar_url,
+                "links": [link.model_dump() for link in post.author.links],
+            },
             published_at=post.published_at,
             updated_at=post.updated_at,
             tags=[t.model_dump() for t in post.tags],
+            faqs=[f.model_dump() for f in post.faqs],
         )
         await self._posts.set_rendered_path(post.id, result.rendered_path or "")
         await self._posts.update_fields(post.id, {"reading_time": result.reading_time})

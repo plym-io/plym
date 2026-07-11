@@ -54,6 +54,7 @@ async def update_me(
         display_name=payload.display_name,
         bio=payload.bio,
         avatar_url=payload.avatar_url,
+        links=payload.links,
     )
 
 

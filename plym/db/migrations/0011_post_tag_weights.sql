@@ -1,0 +1,2 @@
+ALTER TABLE public.pl_posts ADD COLUMN IF NOT EXISTS weight INT;
+ALTER TABLE public.pl_tags ADD COLUMN IF NOT EXISTS weight INT;

@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 import aiofiles
@@ -32,6 +33,23 @@ class PostPipeline:
     def slugify(self, value: str) -> str:
         return slugify(value, regex_pattern=r"[^a-z0-9]+")
 
+    def _faq_jsonld(self, faqs: list[dict]) -> str | None:
+        if not faqs:
+            return None
+        payload = {
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            "mainEntity": [
+                {
+                    "@type": "Question",
+                    "name": faq["question"],
+                    "acceptedAnswer": {"@type": "Answer", "text": faq["answer"]},
+                }
+                for faq in faqs
+            ],
+        }
+        return json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
+
     def reading_minutes(self, content: str) -> int:
         return self._reading.minutes(content)
 
@@ -49,6 +67,7 @@ class PostPipeline:
         published_at: datetime | None,
         updated_at: datetime | None,
         tags: list[dict],
+        faqs: list[dict],
         toc: list[dict],
     ) -> dict:
         canonical = canonical_url or f"{self._site.public_blog_url()}/{slug}"
@@ -67,6 +86,8 @@ class PostPipeline:
                 "published_at": published_at,
                 "updated_at": updated_at,
                 "tags": tags,
+                "faqs": faqs,
+                "faq_jsonld": self._faq_jsonld(faqs),
                 "toc": toc,
             }
         }
@@ -84,6 +105,7 @@ class PostPipeline:
         published_at: datetime | None,
         updated_at: datetime | None,
         tags: list[dict],
+        faqs: list[dict],
     ) -> PostRenderResult:
         content_html, toc = self._markdown.render(content)
         reading_time = self._reading.minutes(content)
@@ -99,6 +121,7 @@ class PostPipeline:
             published_at=published_at,
             updated_at=updated_at,
             tags=tags,
+            faqs=faqs,
             toc=toc,
         )
         rendered = self._template.render_post(context)
@@ -157,11 +180,12 @@ class PostPipeline:
             excerpt=excerpt,
             cover=cover,
             canonical_url=canonical_url,
-            author={"display_name": "Preview", "avatar_url": None},
+            author={"display_name": "Preview", "avatar_url": None, "links": []},
             reading_time=reading_time,
             published_at=None,
             updated_at=None,
             tags=[],
+            faqs=[],
             toc=toc,
         )
         rendered = self._template.render_post(context)

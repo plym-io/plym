@@ -1,0 +1,1 @@
+ALTER TABLE public.pl_users ADD COLUMN IF NOT EXISTS links JSONB NOT NULL DEFAULT '[]'::jsonb;

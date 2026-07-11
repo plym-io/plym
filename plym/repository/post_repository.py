@@ -9,19 +9,38 @@ from plym.instrumentation.tracer import Traced
 
 _TAGS_JSON = """
         COALESCE((
-            SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'slug', t.slug)
-                            ORDER BY t.name)
+            SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'slug', t.slug,
+                                              'weight', t.weight)
+                            ORDER BY t.weight ASC NULLS LAST, t.name)
             FROM public.pl_post_tags pt
             JOIN public.pl_tags t ON t.id = pt.tag_id
             WHERE pt.post_id = p.id
         ), '[]'::json) AS tags
 """
 
+_FAQS_JSON = """
+        COALESCE((
+            SELECT json_agg(json_build_object('id', f.id,
+                                              'question', f.data->>'question',
+                                              'answer', f.data->>'answer')
+                            ORDER BY pf.position)
+            FROM public.pl_post_faqs pf
+            JOIN public.pl_faqs f ON f.id = pf.faq_id
+            WHERE pf.post_id = p.id
+        ), '[]'::json) AS faqs
+"""
+
+
+def _decode_json_col(data: dict, key: str) -> None:
+    value = data.get(key)
+    if value is not None and not isinstance(value, list):
+        data[key] = json.loads(value)
+
 
 def _with_tags(row) -> dict:
     data = dict(row)
-    tags = data["tags"]
-    data["tags"] = tags if isinstance(tags, list) else json.loads(tags)
+    _decode_json_col(data, "tags")
+    _decode_json_col(data, "faqs")
     return data
 
 
@@ -47,6 +66,7 @@ class PostRepository(Traced):
         cover: str | None,
         canonical_url: str | None,
         reading_time: int,
+        weight: int | None = None,
     ) -> int:
         try:
             result = await self._session.execute(
@@ -54,9 +74,9 @@ class PostRepository(Traced):
                     """
                     INSERT INTO public.pl_posts
                         (slug, title, author_id, content, excerpt, cover,
-                         canonical_url, reading_time)
+                         canonical_url, reading_time, weight)
                     VALUES (:slug, :title, :author_id, :content, :excerpt, :cover,
-                            :canonical_url, :reading_time)
+                            :canonical_url, :reading_time, :weight)
                     RETURNING id
                     """
                 ),
@@ -69,6 +89,7 @@ class PostRepository(Traced):
                     "cover": cover,
                     "canonical_url": canonical_url,
                     "reading_time": reading_time,
+                    "weight": weight,
                 },
             )
             return int(result.scalar_one())
@@ -76,7 +97,8 @@ class PostRepository(Traced):
             raise SlugConflictError(slug) from e
 
     _UPDATABLE_FIELDS = {
-        "slug", "title", "content", "excerpt", "cover", "canonical_url", "status", "reading_time"
+        "slug", "title", "content", "excerpt", "cover", "canonical_url", "status",
+        "reading_time", "weight"
     }
 
     async def update_fields(self, post_id: int, fields: dict) -> None:
@@ -105,7 +127,9 @@ class PostRepository(Traced):
             text(
                 f"""
                 SELECT p.*, u.display_name, u.avatar_url,
-                {_TAGS_JSON}
+                       COALESCE(u.links, '[]'::jsonb) AS links,
+                {_TAGS_JSON},
+                {_FAQS_JSON}
                 FROM public.pl_posts p
                 JOIN public.pl_users u ON u.id = p.author_id
                 WHERE p.id = :id
@@ -121,7 +145,9 @@ class PostRepository(Traced):
             text(
                 f"""
                 SELECT p.*, u.display_name, u.avatar_url,
-                {_TAGS_JSON}
+                       COALESCE(u.links, '[]'::jsonb) AS links,
+                {_TAGS_JSON},
+                {_FAQS_JSON}
                 FROM public.pl_posts p
                 JOIN public.pl_users u ON u.id = p.author_id
                 WHERE p.slug = :slug
@@ -137,13 +163,15 @@ class PostRepository(Traced):
             text(
                 """
                 SELECT p.id, p.slug, p.title, p.status, p.reading_time, p.excerpt,
-                       p.cover, p.canonical_url, p.published_at, p.created_at, p.updated_at,
+                       p.cover, p.canonical_url, p.weight,
+                       p.published_at, p.created_at, p.updated_at,
                        u.id AS author_id, u.display_name, u.avatar_url,
+                       COALESCE(u.links, '[]'::jsonb) AS links,
                        COUNT(*) OVER() AS total
                 FROM public.pl_posts p
                 JOIN public.pl_users u ON u.id = p.author_id
                 WHERE p.status = 'published'
-                ORDER BY p.published_at DESC NULLS LAST, p.id DESC
+                ORDER BY p.weight ASC NULLS LAST, p.published_at DESC NULLS LAST, p.id DESC
                 LIMIT :limit OFFSET :offset
                 """
             ),
@@ -184,8 +212,10 @@ class PostRepository(Traced):
             text(
                 f"""
                 SELECT p.id, p.slug, p.title, p.status, p.reading_time, p.excerpt,
-                       p.cover, p.canonical_url, p.published_at, p.created_at, p.updated_at,
+                       p.cover, p.canonical_url, p.weight,
+                       p.published_at, p.created_at, p.updated_at,
                        u.id AS author_id, u.display_name, u.avatar_url,
+                       COALESCE(u.links, '[]'::jsonb) AS links,
                        COUNT(*) OVER() AS total
                 FROM public.pl_posts p
                 JOIN public.pl_users u ON u.id = p.author_id
@@ -234,7 +264,7 @@ class PostRepository(Traced):
             text(
                 """
                 SELECT id, slug, title, author_id, status, reading_time, content,
-                       rendered_path, excerpt, cover, published_at,
+                       rendered_path, excerpt, cover, weight, published_at,
                        created_at, updated_at
                 FROM public.pl_posts
                 WHERE id > :after

@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from plym.exceptions.users import CannotDeleteSelfError, UserNotFoundError
 from plym.instrumentation.tracer import Traced
-from plym.models.user import User
+from plym.models.user import ExtLink, User
 from plym.repository.token_repository import RefreshTokenRepository
 from plym.repository.user_repository import UserRepository
 
@@ -26,12 +26,14 @@ class UserService(Traced):
         display_name: str | None,
         bio: str | None,
         avatar_url: str | None,
+        links: list[ExtLink] | None,
     ) -> User:
         await self._users.update_profile(
             user_id,
             display_name=display_name,
             bio=bio,
             avatar_url=avatar_url,
+            links=[link.model_dump() for link in links] if links is not None else None,
         )
         await self._session.commit()
         return await self.get(user_id)

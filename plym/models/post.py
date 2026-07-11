@@ -2,7 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from plym.models.common import ORMModel, PostStatus, Timestamped
+from plym.models.common import PostStatus, Timestamped
+from plym.models.faq import Faq
 from plym.models.tag import Tag
 from plym.models.user import UserPublic
 
@@ -16,7 +17,9 @@ class PostCreate(BaseModel):
     excerpt: str | None = None
     cover: str | None = None
     canonical_url: str | None = Field(default=None, max_length=2048, pattern=_URL_PATTERN)
+    weight: int | None = None
     tags: list[str] = Field(default_factory=list)
+    faqs: list[int] = Field(default_factory=list)
 
 
 class PostUpdate(BaseModel):
@@ -27,7 +30,9 @@ class PostUpdate(BaseModel):
     cover: str | None = None
     canonical_url: str | None = Field(default=None, max_length=2048, pattern=_URL_PATTERN)
     status: PostStatus | None = None
+    weight: int | None = None
     tags: list[str] | None = None
+    faqs: list[int] | None = None
 
 
 class PostListItem(Timestamped):
@@ -39,6 +44,7 @@ class PostListItem(Timestamped):
     excerpt: str | None = None
     cover: str | None = None
     canonical_url: str | None = None
+    weight: int | None = None
     published_at: datetime | None = None
     author: UserPublic
     tags: list[Tag] = Field(default_factory=list)
@@ -47,6 +53,7 @@ class PostListItem(Timestamped):
 class Post(PostListItem):
     content: str
     rendered_path: str | None = None
+    faqs: list[Faq] = Field(default_factory=list)
 
 
 class PreviewRequest(BaseModel):

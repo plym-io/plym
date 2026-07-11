@@ -1,3 +1,5 @@
+import uuid
+
 import httpx
 import pytest
 
@@ -405,3 +407,67 @@ async def test_preview_renders_without_persisting(
     html = r.json()["html"]
     assert isinstance(html, str) and html
     assert "Preview Title" in html
+
+
+@pytest.mark.asyncio
+async def test_weight_orders_published_listing(
+    client: httpx.AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    specs = {"chrono": None, "heavy": 20, "light": 10}
+    created: dict[str, dict] = {}
+    try:
+        for title, weight in specs.items():
+            payload = {
+                "title": title,
+                "slug": f"test-{uuid.uuid4().hex[:12]}",
+                "content": "x",
+            }
+            if weight is not None:
+                payload["weight"] = weight
+            r = await client.post("/api/posts", json=payload, headers=auth_headers)
+            assert r.status_code == 201, r.text
+            assert r.json()["weight"] == weight
+            created[title] = r.json()
+            r = await client.patch(
+                f"/api/posts/{created[title]['id']}",
+                json={"status": "published"},
+                headers=auth_headers,
+            )
+            assert r.status_code == 200
+
+        r = await client.get("/api/posts", params={"page_size": 200})
+        assert r.status_code == 200
+        positions = {item["slug"]: idx for idx, item in enumerate(r.json()["items"])}
+        light, heavy, chrono = (created[t]["slug"] for t in ("light", "heavy", "chrono"))
+        assert positions[light] < positions[heavy] < positions[chrono]
+    finally:
+        for post in created.values():
+            await client.delete(f"/api/posts/{post['id']}", headers=auth_headers)
+
+
+@pytest.mark.asyncio
+async def test_patch_weight_set_and_clear(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], unique_slug: str
+) -> None:
+    r = await client.post(
+        "/api/posts",
+        json={"title": "weighted", "slug": unique_slug, "content": "x"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201
+    post = r.json()
+    assert post["weight"] is None
+    try:
+        r = await client.patch(
+            f"/api/posts/{post['id']}", json={"weight": 5}, headers=auth_headers
+        )
+        assert r.status_code == 200
+        assert r.json()["weight"] == 5
+
+        r = await client.patch(
+            f"/api/posts/{post['id']}", json={"weight": None}, headers=auth_headers
+        )
+        assert r.status_code == 200
+        assert r.json()["weight"] is None
+    finally:
+        await client.delete(f"/api/posts/{post['id']}", headers=auth_headers)

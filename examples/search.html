@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Search</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #111111;
+    --muted: #667085;
+    --border: #e4e7ec;
+    --hover: #f4f6f8;
+    --accent: #0066ff;
+    --mark: #fff1a8;
+    --mark-fg: #111111;
+    --shadow: 0 8px 30px rgba(16, 24, 40, .12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101418;
+      --fg: #e6e9ee;
+      --muted: #98a2b3;
+      --border: #2a3038;
+      --hover: #1a2028;
+      --accent: #4d94ff;
+      --mark: #4d3f00;
+      --mark-fg: #ffe680;
+      --shadow: 0 8px 30px rgba(0, 0, 0, .5);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .plym-search {
+    max-width: 640px;
+    margin: 8vh auto 0;
+    padding: 0 20px;
+    position: relative;
+  }
+  .plym-search input[type="search"] {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 17px;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    outline: none;
+    -webkit-appearance: none;
+  }
+  .plym-search input[type="search"]:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  .plym-search .plym-status {
+    margin: 8px 4px;
+    font-size: 13px;
+    color: var(--muted);
+    min-height: 1.2em;
+  }
+  .plym-search ol.plym-results {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    background: var(--bg);
+  }
+  .plym-search ol.plym-results:empty { display: none; }
+  .plym-search .plym-hit {
+    display: block;
+    padding: 12px 16px;
+    text-decoration: none;
+    color: inherit;
+    border-top: 1px solid var(--border);
+  }
+  .plym-search li:first-child .plym-hit { border-top: none; }
+  .plym-search li.plym-active .plym-hit,
+  .plym-search .plym-hit:hover { background: var(--hover); }
+  .plym-search .plym-hit h3 {
+    margin: 0 0 2px;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .plym-search .plym-hit p {
+    margin: 0;
+    font-size: 14px;
+    color: var(--muted);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .plym-search .plym-meta {
+    margin-top: 4px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .plym-search .plym-meta .plym-tag {
+    display: inline-block;
+    padding: 0 8px;
+    margin-right: 6px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .plym-search mark {
+    background: var(--mark);
+    color: var(--mark-fg);
+    border-radius: 2px;
+    padding: 0 1px;
+  }
+</style>
+</head>
+<body>
+
+<div class="plym-search">
+  <input type="search" id="plym-search-input" placeholder="Search posts…"
+         autocomplete="off" spellcheck="false" aria-label="Search posts">
+  <div class="plym-status" id="plym-search-status" role="status"></div>
+  <ol class="plym-results" id="plym-search-results"></ol>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var PLYM_INDEX_URL = "http://127.0.0.1:8001/index.json";
+  var PLYM_MAX_RESULTS = 10;
+
+  var WEIGHTS = {
+    title:   { exact: 12, prefix: 9, inner: 5 },
+    tags:    { exact: 10, prefix: 7, inner: 4 },
+    excerpt: { exact: 5,  prefix: 4, inner: 2 },
+    text:    { exact: 4,  prefix: 3, inner: 1 }
+  };
+  var PHRASE_BONUS = { title: 10, excerpt: 4, text: 4 };
+  var TITLE_START_BONUS = 3;
+
+  var indexPromise = null;
+  var docs = null;
+
+  function fold(s) {
+    var out = "";
+    for (var ch of s.toLowerCase()) {
+      var nfd = ch.normalize("NFD");
+      out += nfd ? String.fromCodePoint(nfd.codePointAt(0)) : ch;
+    }
+    return out;
+  }
+
+  function tokenize(q) {
+    return fold(q).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  }
+
+  function isWordChar(ch) {
+    return ch !== undefined && /[\p{L}\p{N}]/u.test(ch);
+  }
+
+  function bestOccurrence(haystack, needle) {
+    var best = 0;
+    var from = 0;
+    var firstPos = -1;
+    var count = 0;
+    while (count < 50) {
+      var i = haystack.indexOf(needle, from);
+      if (i === -1) break;
+      count += 1;
+      if (firstPos === -1) firstPos = i;
+      var boundaryBefore = i === 0 || !isWordChar(haystack[i - 1]);
+      var boundaryAfter = !isWordChar(haystack[i + needle.length]);
+      var kind = boundaryBefore ? (boundaryAfter ? 3 : 2) : 1;
+      if (kind > best) best = kind;
+      if (best === 3) break;
+      from = i + 1;
+    }
+    return { kind: best, pos: firstPos, count: count };
+  }
+
+  function prepare(index) {
+    return index.documents.map(function (d) {
+      return {
+        doc: d,
+        title: fold(d.title),
+        tags: fold(d.tags.join(" ")),
+        excerpt: fold(d.excerpt || ""),
+        text: fold(d.text),
+        stamp: Date.parse(d.published_at || d.updated_at || 0) || 0
+      };
+    });
+  }
+
+  function scoreToken(entry, token) {
+    var kinds = ["", "inner", "prefix", "exact"];
+    var score = 0;
+    var matched = false;
+    var textPos = -1;
+    for (var field of ["title", "tags", "excerpt", "text"]) {
+      var occ = bestOccurrence(entry[field], token);
+      if (occ.kind === 0) continue;
+      matched = true;
+      score += WEIGHTS[field][kinds[occ.kind]];
+      if (field === "title" && occ.pos === 0) score += TITLE_START_BONUS;
+      if (field === "text") {
+        score += Math.min(occ.count - 1, 4) * 0.5;
+        textPos = occ.pos;
+      }
+    }
+    return matched ? { score: score, textPos: textPos } : null;
+  }
+
+  function makeSnippet(entry, pos, width) {
+    var text = entry.doc.text;
+    if (!text) return entry.doc.excerpt || "";
+    if (pos < 0) pos = 0;
+    var start = Math.max(0, pos - Math.floor(width / 3));
+    if (start > 0) {
+      var brk = text.lastIndexOf(" ", start);
+      start = brk === -1 ? start : brk + 1;
+    }
+    var end = Math.min(text.length, start + width);
+    if (end < text.length) {
+      var brkEnd = text.indexOf(" ", end);
+      if (brkEnd !== -1 && brkEnd - end < 20) end = brkEnd;
+    }
+    return (start > 0 ? "… " : "") + text.slice(start, end) + (end < text.length ? " …" : "");
+  }
+
+  async function ensureIndex() {
+    if (docs) return docs;
+    if (!indexPromise) {
+      indexPromise = fetch(PLYM_INDEX_URL, { headers: { Accept: "application/json" } })
+        .then(function (r) {
+          if (!r.ok) throw new Error("index fetch failed: " + r.status);
+          return r.json();
+        })
+        .then(function (index) {
+          docs = prepare(index);
+          return docs;
+        })
+        .catch(function (err) {
+          indexPromise = null;
+          throw err;
+        });
+    }
+    return indexPromise;
+  }
+
+  async function plym_search(query, limit) {
+    limit = limit || PLYM_MAX_RESULTS;
+    var tokens = tokenize(query || "");
+    if (!tokens.length) return [];
+    var entries = await ensureIndex();
+    var phrase = tokens.length > 1 ? fold(query).trim() : null;
+
+    var hits = [];
+    for (var entry of entries) {
+      var score = 0;
+      var snippetPos = -1;
+      var allMatched = true;
+      for (var token of tokens) {
+        var res = scoreToken(entry, token);
+        if (!res) { allMatched = false; break; }
+        score += res.score;
+        if (snippetPos === -1 && res.textPos !== -1) snippetPos = res.textPos;
+      }
+      if (!allMatched) continue;
+      if (phrase) {
+        if (entry.title.includes(phrase)) score += PHRASE_BONUS.title;
+        if (entry.excerpt.includes(phrase)) score += PHRASE_BONUS.excerpt;
+        var phrasePos = entry.text.indexOf(phrase);
+        if (phrasePos !== -1) { score += PHRASE_BONUS.text; snippetPos = phrasePos; }
+      }
+      hits.push({ entry: entry, score: score, snippetPos: snippetPos });
+    }
+
+    hits.sort(function (a, b) {
+      return b.score - a.score || b.entry.stamp - a.entry.stamp;
+    });
+
+    return hits.slice(0, limit).map(function (h) {
+      var d = h.entry.doc;
+      return {
+        slug: d.slug,
+        url: d.url,
+        title: d.title,
+        excerpt: d.excerpt,
+        tags: d.tags,
+        author: d.author,
+        published_at: d.published_at,
+        reading_time: d.reading_time,
+        score: Math.round(h.score * 10) / 10,
+        snippet: makeSnippet(h.entry, h.snippetPos, 160),
+        terms: tokens
+      };
+    });
+  }
+
+  window.plym_search = plym_search;
+  window.plym_search_internals = { fold: fold, tokenize: tokenize, bestOccurrence: bestOccurrence, prepare: prepare, makeSnippet: makeSnippet };
+
+  var input = document.getElementById("plym-search-input");
+  var list = document.getElementById("plym-search-results");
+  var status = document.getElementById("plym-search-status");
+  if (!input) return;
+
+  var seq = 0;
+  var active = -1;
+
+  function highlightInto(parent, text, terms) {
+    var low = fold(text);
+    var marks = [];
+    for (var t of terms) {
+      var from = 0;
+      while (true) {
+        var i = low.indexOf(t, from);
+        if (i === -1) break;
+        marks.push([i, i + t.length]);
+        from = i + t.length;
+      }
+    }
+    marks.sort(function (a, b) { return a[0] - b[0]; });
+    var merged = [];
+    for (var m of marks) {
+      var last = merged[merged.length - 1];
+      if (last && m[0] <= last[1]) last[1] = Math.max(last[1], m[1]);
+      else merged.push(m.slice());
+    }
+    var cursor = 0;
+    for (var seg of merged) {
+      if (seg[0] > cursor) parent.appendChild(document.createTextNode(text.slice(cursor, seg[0])));
+      var mark = document.createElement("mark");
+      mark.textContent = text.slice(seg[0], seg[1]);
+      parent.appendChild(mark);
+      cursor = seg[1];
+    }
+    if (cursor < text.length) parent.appendChild(document.createTextNode(text.slice(cursor)));
+  }
+
+  function render(results, elapsed) {
+    list.textContent = "";
+    active = -1;
+    if (!input.value.trim()) { status.textContent = ""; return; }
+    status.textContent = results.length
+      ? results.length + " result" + (results.length === 1 ? "" : "s") + " · " + elapsed.toFixed(1) + " ms"
+      : "No results";
+    for (var r of results) {
+      var li = document.createElement("li");
+      var a = document.createElement("a");
+      a.className = "plym-hit";
+      a.href = r.url;
+      var h = document.createElement("h3");
+      highlightInto(h, r.title, r.terms);
+      var p = document.createElement("p");
+      highlightInto(p, r.snippet, r.terms);
+      var meta = document.createElement("div");
+      meta.className = "plym-meta";
+      for (var tag of r.tags) {
+        var chip = document.createElement("span");
+        chip.className = "plym-tag";
+        chip.textContent = tag;
+        meta.appendChild(chip);
+      }
+      var bits = [r.author, r.published_at ? new Date(r.published_at).toLocaleDateString() : null,
+                  r.reading_time ? r.reading_time + " min read" : null].filter(Boolean);
+      meta.appendChild(document.createTextNode(bits.join(" · ")));
+      a.appendChild(h); a.appendChild(p); a.appendChild(meta);
+      li.appendChild(a);
+      list.appendChild(li);
+    }
+  }
+
+  async function run() {
+    var mySeq = ++seq;
+    var q = input.value;
+    if (!q.trim()) { render([], 0); return; }
+    try {
+      var t0 = performance.now();
+      var results = await plym_search(q);
+      var elapsed = performance.now() - t0;
+      if (mySeq === seq) render(results, elapsed);
+    } catch (err) {
+      if (mySeq === seq) { list.textContent = ""; status.textContent = "Search unavailable — could not load index"; }
+    }
+  }
+
+  input.addEventListener("focus", function () {
+    ensureIndex().then(function (entries) {
+      if (!input.value.trim()) status.textContent = entries.length + " posts indexed";
+    }).catch(function () {
+      status.textContent = "Search unavailable — could not load index";
+    });
+  });
+  input.addEventListener("input", run);
+  input.addEventListener("keydown", function (e) {
+    var items = list.children;
+    if (!items.length) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (active >= 0) items[active].classList.remove("plym-active");
+      active = e.key === "ArrowDown"
+        ? (active + 1) % items.length
+        : (active - 1 + items.length) % items.length;
+      items[active].classList.add("plym-active");
+      items[active].scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter" && active >= 0) {
+      e.preventDefault();
+      items[active].querySelector("a").click();
+    } else if (e.key === "Escape") {
+      input.value = "";
+      render([], 0);
+    }
+  });
+})();
+</script>
+
+</body>
+</html>

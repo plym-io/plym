@@ -1,3 +1,5 @@
+import json
+
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +18,8 @@ class UserRepository(Traced):
                 """
                 SELECT u.id, u.email, u.password_hash, u.role, u.is_active,
                        u.created_at, u.updated_at,
-                       p.display_name, p.bio, p.avatar_url
+                       p.display_name, p.bio, p.avatar_url,
+                       COALESCE(p.links, '[]'::jsonb) AS links
                 FROM auth.users u
                 LEFT JOIN public.pl_users p ON p.id = u.id
                 WHERE u.email = :email
@@ -33,7 +36,8 @@ class UserRepository(Traced):
                 """
                 SELECT u.id, u.email, u.password_hash, u.role, u.is_active,
                        u.created_at, u.updated_at,
-                       p.display_name, p.bio, p.avatar_url
+                       p.display_name, p.bio, p.avatar_url,
+                       COALESCE(p.links, '[]'::jsonb) AS links
                 FROM auth.users u
                 LEFT JOIN public.pl_users p ON p.id = u.id
                 WHERE u.id = :id
@@ -103,6 +107,7 @@ class UserRepository(Traced):
                 SELECT u.id, u.email, u.role, u.is_active,
                        u.created_at, u.updated_at,
                        p.display_name, p.bio, p.avatar_url,
+                       COALESCE(p.links, '[]'::jsonb) AS links,
                        COUNT(*) OVER() AS total
                 FROM auth.users u
                 LEFT JOIN public.pl_users p ON p.id = u.id
@@ -125,6 +130,7 @@ class UserRepository(Traced):
         display_name: str | None = None,
         bio: str | None = None,
         avatar_url: str | None = None,
+        links: list[dict] | None = None,
     ) -> None:
         await self._session.execute(
             text(
@@ -132,9 +138,16 @@ class UserRepository(Traced):
                 UPDATE public.pl_users
                 SET display_name = COALESCE(:display_name, display_name),
                     bio = COALESCE(:bio, bio),
-                    avatar_url = COALESCE(:avatar_url, avatar_url)
+                    avatar_url = COALESCE(:avatar_url, avatar_url),
+                    links = COALESCE(CAST(:links AS jsonb), links)
                 WHERE id = :id
                 """
             ),
-            {"display_name": display_name, "bio": bio, "avatar_url": avatar_url, "id": user_id},
+            {
+                "display_name": display_name,
+                "bio": bio,
+                "avatar_url": avatar_url,
+                "links": json.dumps(links) if links is not None else None,
+                "id": user_id,
+            },
         )

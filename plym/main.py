@@ -13,6 +13,7 @@ from plym.api.auth_router import router as auth_router
 from plym.api.blog_router import index_router, serve_index
 from plym.api.blog_router import posts_router as blog_posts_router
 from plym.api.config_router import router as config_router
+from plym.api.faqs_router import router as faqs_router
 from plym.api.media_router import router as media_router
 from plym.api.posts_router import router as posts_router
 from plym.api.search_router import api_router as search_api_router
@@ -113,6 +114,7 @@ app.include_router(users_router)
 app.include_router(posts_router)
 app.include_router(media_router)
 app.include_router(tags_router)
+app.include_router(faqs_router)
 app.include_router(config_router)
 app.include_router(submissions_router)
 app.include_router(search_api_router)

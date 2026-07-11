@@ -27,9 +27,33 @@ class TagRepository(Traced):
 
     async def list_all(self) -> list[dict]:
         result = await self._session.execute(
-            text("SELECT id, name, slug FROM public.pl_tags ORDER BY name")
+            text(
+                "SELECT id, name, slug, weight FROM public.pl_tags "
+                "ORDER BY weight ASC NULLS LAST, name"
+            )
         )
         return [dict(r) for r in result.mappings().all()]
+
+    async def get_by_id(self, tag_id: int) -> dict | None:
+        result = await self._session.execute(
+            text("SELECT id, name, slug, weight FROM public.pl_tags WHERE id = :id"),
+            {"id": tag_id},
+        )
+        row = result.mappings().first()
+        return dict(row) if row else None
+
+    async def set_weight(self, tag_id: int, weight: int | None) -> dict | None:
+        result = await self._session.execute(
+            text(
+                """
+                UPDATE public.pl_tags SET weight = :weight WHERE id = :id
+                RETURNING id, name, slug, weight
+                """
+            ),
+            {"id": tag_id, "weight": weight},
+        )
+        row = result.mappings().first()
+        return dict(row) if row else None
 
     async def list_for_posts(self, post_ids: list[int]) -> dict[int, list[dict]]:
         if not post_ids:
@@ -37,11 +61,11 @@ class TagRepository(Traced):
         result = await self._session.execute(
             text(
                 """
-                SELECT pt.post_id, t.id, t.name, t.slug
+                SELECT pt.post_id, t.id, t.name, t.slug, t.weight
                 FROM public.pl_tags t
                 JOIN public.pl_post_tags pt ON pt.tag_id = t.id
                 WHERE pt.post_id = ANY(CAST(:ids AS BIGINT[]))
-                ORDER BY t.name
+                ORDER BY t.weight ASC NULLS LAST, t.name
                 """
             ),
             {"ids": post_ids},
@@ -49,7 +73,8 @@ class TagRepository(Traced):
         grouped: dict[int, list[dict]] = {}
         for row in result.mappings().all():
             grouped.setdefault(row["post_id"], []).append(
-                {"id": row["id"], "name": row["name"], "slug": row["slug"]}
+                {"id": row["id"], "name": row["name"], "slug": row["slug"],
+                 "weight": row["weight"]}
             )
         return grouped
 
