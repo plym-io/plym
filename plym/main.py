@@ -157,7 +157,7 @@ if _prefix:
     )
 
     async def _root_redirect() -> RedirectResponse:
-        return RedirectResponse(f"{_site_config.public_blog_url()}/", status_code=308)
+        return RedirectResponse(f"{_prefix}/", status_code=308)
 
     app.add_api_route("/", _root_redirect, include_in_schema=False)
     app.mount(
@@ -169,9 +169,6 @@ if _prefix:
         )
 else:
     app.include_router(index_router)
-    app.mount("/webfonts", StaticFiles(directory=settings.fonts_dir), name="webfonts")
-    if not _site_config.media.location:
-        app.mount("/media", StaticFiles(directory=settings.uploads_dir), name="media")
 
 if _admin_available:
     async def _admin_redirect() -> RedirectResponse:

@@ -48,7 +48,7 @@ class AssetDownloader:
         return await self._store(data, "favicon", "ico")
 
     def _web_path(self, filename: str) -> str:
-        return f"{self._site.public_blog_url()}/static/{filename}"
+        return f"{self._site.blog_prefix}/static/{filename}"
 
     async def _logo(self, session: aiohttp.ClientSession, source: str | None) -> SiteAsset | None:
         data = await self._download(session, source)

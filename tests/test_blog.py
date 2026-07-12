@@ -16,7 +16,7 @@ async def test_index_returns_html(client: httpx.AsyncClient) -> None:
 async def test_root_redirects_to_blog_home(client: httpx.AsyncClient) -> None:
     r = await client.get("/", follow_redirects=False)
     assert r.status_code == 308
-    assert r.headers["location"] == "https://plym.local/blog/"
+    assert r.headers["location"] == "/blog/"
 
 
 @pytest.mark.asyncio

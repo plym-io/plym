@@ -121,6 +121,16 @@ class SiteConfig(BaseModel):
             url = f"https://{url}"
         return url
 
+    def public_origin(self) -> str:
+        url = self.public_blog_url()
+        scheme, _, rest = url.partition("://")
+        return f"{scheme}://{rest.split('/', 1)[0]}"
+
+    def absolute_url(self, path: str) -> str:
+        if path.startswith(("http://", "https://")):
+            return path
+        return f"{self.public_origin()}{path}"
+
 
 class TemplatePrismConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")

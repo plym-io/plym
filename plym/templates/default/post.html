@@ -1,5 +1,5 @@
 <header class="plym-header">
-  <a class="plym-brand" href="{{ site.public_blog_url() }}/">
+  <a class="plym-brand" href="{{ site.blog_prefix or '/' }}">
     {% if site.logo %}
       <img class="plym-logo" src="{{ site.logo }}" alt="{{ site.name }}">
     {% else %}

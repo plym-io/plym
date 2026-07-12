@@ -122,6 +122,8 @@ class PostPipeline:
         toc: list[dict],
     ) -> dict:
         canonical = canonical_url or f"{self._site.public_blog_url()}/{slug}"
+        if cover:
+            cover = self._site.absolute_url(cover)
         return {
             "post": {
                 "slug": slug,
