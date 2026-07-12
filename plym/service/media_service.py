@@ -31,7 +31,7 @@ class MediaService(Traced):
         base = (
             self._site.media.location.rstrip("/")
             if self._site.media.location
-            else f"{self._site.blog_prefix}/media"
+            else f"{self._site.public_blog_url()}/media"
         )
         return f"{base}/{filename}"
 

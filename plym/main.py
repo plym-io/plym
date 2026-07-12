@@ -122,7 +122,6 @@ app.include_router(submissions_router)
 app.include_router(search_api_router)
 app.include_router(seo_router)
 app.include_router(index_json_router)
-app.include_router(index_router)
 
 class AdminSPA(StaticFiles):
     def __init__(self, directory: str, base_href: str) -> None:
@@ -156,6 +155,11 @@ if _prefix:
     app.add_api_route(
         f"{_prefix}/", serve_index, response_class=HTMLResponse, include_in_schema=False
     )
+
+    async def _root_redirect() -> RedirectResponse:
+        return RedirectResponse(f"{_site_config.public_blog_url()}/", status_code=308)
+
+    app.add_api_route("/", _root_redirect, include_in_schema=False)
     app.mount(
         f"{_prefix}/webfonts", StaticFiles(directory=settings.fonts_dir), name="blog-webfonts"
     )
@@ -163,6 +167,11 @@ if _prefix:
         app.mount(
             f"{_prefix}/media", StaticFiles(directory=settings.uploads_dir), name="blog-media"
         )
+else:
+    app.include_router(index_router)
+    app.mount("/webfonts", StaticFiles(directory=settings.fonts_dir), name="webfonts")
+    if not _site_config.media.location:
+        app.mount("/media", StaticFiles(directory=settings.uploads_dir), name="media")
 
 if _admin_available:
     async def _admin_redirect() -> RedirectResponse:

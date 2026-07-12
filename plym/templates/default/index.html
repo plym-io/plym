@@ -1,5 +1,5 @@
 <header class="plym-header">
-  <a class="plym-brand" href="{{ site.blog_prefix or '/' }}">
+  <a class="plym-brand" href="{{ site.public_blog_url() }}/">
     {% if site.logo %}
       <img class="plym-logo" src="{{ site.logo }}" alt="{{ site.name }}">
     {% else %}
@@ -13,7 +13,7 @@
     {% for post in posts %}
       <article class="plym-card">
         <h2 class="plym-card-title">
-          <a href="{{ site.blog_prefix }}/{{ post.slug }}">{{ post.title }}</a>
+          <a href="{{ site.public_blog_url() }}/{{ post.slug }}">{{ post.title }}</a>
         </h2>
         {% if post.excerpt %}
           <p class="plym-card-excerpt">{{ post.excerpt }}</p>

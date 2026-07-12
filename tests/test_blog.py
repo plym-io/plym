@@ -6,10 +6,17 @@ from tests.conftest import BASE_URL, TEST_MODE
 
 @pytest.mark.asyncio
 async def test_index_returns_html(client: httpx.AsyncClient) -> None:
-    r = await client.get("/")
+    r = await client.get("/blog/")
     assert r.status_code == 200
     assert "<html" in r.text.lower()
     assert "cache-control" in {k.lower() for k in r.headers}
+
+
+@pytest.mark.asyncio
+async def test_root_redirects_to_blog_home(client: httpx.AsyncClient) -> None:
+    r = await client.get("/", follow_redirects=False)
+    assert r.status_code == 308
+    assert r.headers["location"] == "https://plym.local/blog/"
 
 
 @pytest.mark.asyncio
