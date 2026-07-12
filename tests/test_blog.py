@@ -59,7 +59,7 @@ async def test_gzip_negotiation() -> None:
         timeout=10.0,
         headers={"Accept-Encoding": "gzip"},
     ) as c:
-        r = await c.get("/")
+        r = await c.get("/blog/")
         assert r.status_code == 200
         assert r.headers.get("content-encoding") == "gzip"
         assert "accept-encoding" in r.headers.get("vary", "").lower()
