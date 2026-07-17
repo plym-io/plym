@@ -62,12 +62,12 @@ class FaqRepository(Traced):
         )
         return result.first() is not None
 
-    async def existing_ids(self, faq_ids: list[int]) -> set[int]:
-        if not faq_ids:
+    async def existing_ids(self, faqs: list[int]) -> set[int]:
+        if not faqs:
             return set()
         result = await self._session.execute(
             text("SELECT id FROM public.pl_faqs WHERE id = ANY(CAST(:ids AS BIGINT[]))"),
-            {"ids": faq_ids},
+            {"ids": faqs},
         )
         return {int(r[0]) for r in result}
 
@@ -95,20 +95,20 @@ class FaqRepository(Traced):
             )
         return grouped
 
-    async def replace_for_post(self, post_id: int, faq_ids: list[int]) -> None:
+    async def replace_for_post(self, post_id: int, faqs: list[int]) -> None:
         await self._session.execute(
             text("DELETE FROM public.pl_post_faqs WHERE post_id = :id"),
             {"id": post_id},
         )
-        if not faq_ids:
+        if not faqs:
             return
         await self._session.execute(
             text(
                 """
                 INSERT INTO public.pl_post_faqs (post_id, faq_id, position)
                 SELECT :post_id, faq_id, ord - 1
-                FROM UNNEST(CAST(:faq_ids AS BIGINT[])) WITH ORDINALITY AS t(faq_id, ord)
+                FROM UNNEST(CAST(:faqs AS BIGINT[])) WITH ORDINALITY AS t(faq_id, ord)
                 """
             ),
-            {"post_id": post_id, "faq_ids": faq_ids},
+            {"post_id": post_id, "faqs": faqs},
         )

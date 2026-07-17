@@ -56,8 +56,8 @@ class PostService(Traced):
         slug_to_id = await self._tags.upsert_many(pairs)
         return [slug_to_id[slug] for _, slug in pairs]
 
-    async def _sync_faqs(self, post_id: int, faq_ids: list[int]) -> None:
-        ordered = list(dict.fromkeys(faq_ids))
+    async def _sync_faqs(self, post_id: int, faqs: list[int]) -> None:
+        ordered = list(dict.fromkeys(faqs))
         existing = await self._faqs.existing_ids(ordered)
         if any(fid not in existing for fid in ordered):
             raise FaqNotFoundError()
