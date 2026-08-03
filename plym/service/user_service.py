@@ -4,8 +4,13 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from plym.config.site import SiteConfig
-from plym.exceptions.users import CannotDeleteSelfError, UserNotFoundError
+from plym.exceptions.users import (
+    CannotChangeOwnRoleError,
+    CannotDeleteSelfError,
+    UserNotFoundError,
+)
 from plym.instrumentation.tracer import Traced
+from plym.models.common import Role
 from plym.models.user import ExtLink, User
 from plym.repository.post_repository import PostRepository
 from plym.repository.token_repository import RefreshTokenRepository
@@ -63,6 +68,15 @@ class UserService(Traced):
             if before.display_name != after.display_name:
                 await SearchIndexService(self._session, self._site).refresh()
         return after
+
+    async def change_role(self, user_id: int, role: Role, *, requester_id: int) -> User:
+        if not await self._users.get_by_id(user_id):
+            raise UserNotFoundError()
+        if user_id == requester_id:
+            raise CannotChangeOwnRoleError()
+        await self._users.set_role(user_id, role.value)
+        await self._session.commit()
+        return await self.get(user_id)
 
     async def deactivate(self, user_id: int, *, requester_id: int) -> None:
         if not await self._users.get_by_id(user_id):

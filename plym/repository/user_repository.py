@@ -95,6 +95,12 @@ class UserRepository(Traced):
             {"h": password_hash, "id": user_id},
         )
 
+    async def set_role(self, user_id: int, role: str) -> None:
+        await self._session.execute(
+            text("UPDATE auth.users SET role = :role WHERE id = :id"),
+            {"role": role, "id": user_id},
+        )
+
     async def set_active(self, user_id: int, active: bool) -> None:
         await self._session.execute(
             text("UPDATE auth.users SET is_active = :active WHERE id = :id"),

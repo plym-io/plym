@@ -20,3 +20,10 @@ class CannotDeleteSelfError(PlymError):
 
     def __init__(self) -> None:
         super().__init__(403, "Administrators cannot delete their own account")
+
+
+class CannotChangeOwnRoleError(PlymError):
+    code = "users.cannot_change_own_role"
+
+    def __init__(self) -> None:
+        super().__init__(403, "Administrators cannot change their own role")
