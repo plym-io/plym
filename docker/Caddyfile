@@ -1,0 +1,127 @@
+:80 {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	@docs path /plym-docs*
+	header @docs Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https://fastapi.tiangolo.com; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+
+	@notdocs not path /plym-docs*
+	header @notdocs Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+
+	@backend path /api/* /health /admin /admin/*
+	handle @backend {
+		reverse_proxy api:8000
+	}
+
+	handle /plym-docs* {
+		reverse_proxy api:8000
+	}
+
+	handle /mcp* {
+		reverse_proxy mcp:8000
+	}
+
+	handle_path {$PLYM_BLOG_PREFIX}/api/* {
+		rewrite * /api{path}
+		reverse_proxy api:8000
+	}
+
+	handle_path {$PLYM_BLOG_PREFIX}/webfonts/* {
+		root * /srv/storage/webfonts
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle_path {$PLYM_BLOG_PREFIX}/static/* {
+		root * /srv/storage/static
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle_path {$PLYM_BLOG_PREFIX}/media/* {
+		root * /srv/storage/_uploads
+		@found file {path}
+		handle @found {
+			header Cache-Control "public, max-age=31536000"
+			file_server
+		}
+		handle {
+			rewrite * {$PLYM_BLOG_PREFIX}/media{path}
+			reverse_proxy api:8000
+		}
+	}
+
+	handle /webfonts/* {
+		root * /srv/storage
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle /static/* {
+		root * /srv/storage
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle /media/* {
+		uri replace /media/ /_uploads/
+		root * /srv/storage
+		@found file {path}
+		handle @found {
+			header Cache-Control "public, max-age=31536000"
+			file_server
+		}
+		handle {
+			uri replace /_uploads/ /media/
+			reverse_proxy api:8000
+		}
+	}
+
+	handle_path {$PLYM_BLOG_PREFIX}/* {
+		root * /srv/storage/.generated
+
+		@mdfile {
+			path *.md
+			file {path}
+		}
+		handle @mdfile {
+			header Content-Type "text/markdown; charset=utf-8"
+			header Cache-Control "public, max-age=300"
+			file_server
+		}
+
+		@md {
+			header_regexp Accept (?i)(^|,)\s*text/markdown\s*(;[^,]*)?($|,)
+			file {path}.md
+		}
+		handle @md {
+			rewrite * {path}.md
+			header Content-Type "text/markdown; charset=utf-8"
+			header Cache-Control "public, max-age=300"
+			header Vary "Accept"
+			file_server
+		}
+
+		@page file {path}.html
+		handle @page {
+			rewrite * {path}.html
+			header Cache-Control "public, max-age=300, stale-while-revalidate=60"
+			header Vary "Accept"
+			file_server
+		}
+		handle {
+			rewrite * {$PLYM_BLOG_PREFIX}{path}
+			reverse_proxy api:8000
+		}
+	}
+
+	handle {
+		reverse_proxy api:8000
+	}
+}
