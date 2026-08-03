@@ -6,7 +6,7 @@ from pathlib import Path
 from plym.config.site import SiteConfig
 from plym.settings import settings
 
-CONTEXT_VERSION = b"1"
+CONTEXT_VERSION = b"2"
 
 _CHROME_DIR = Path(__file__).parent / "chrome"
 _STAMP_RE = re.compile(r'<meta name="plym-render" content="([0-9a-f]+)">')

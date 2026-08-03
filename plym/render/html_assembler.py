@@ -1,3 +1,5 @@
+from plym.render.llms import llms_directive
+
 GENERATOR_META = '<meta name="generator" content="plym.io">'
 
 
@@ -9,6 +11,7 @@ class HtmlAssembler:
         prism_js: str,
         inject_head: str = "",
         inject_body: str = "",
+        llms_url: str = "",
     ) -> str:
         head_payload = f"{GENERATOR_META}<style>{css}</style>"
         if inject_head:
@@ -23,6 +26,8 @@ class HtmlAssembler:
             body_payload += f"<script>{prism_js}</script>"
         if inject_body:
             body_payload += inject_body
+        if llms_url:
+            body_payload += llms_directive(llms_url)
         if body_payload:
             if "</body>" in html:
                 html = html.replace("</body>", f"{body_payload}</body>", 1)

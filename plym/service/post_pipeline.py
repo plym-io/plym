@@ -8,6 +8,7 @@ from slugify import slugify
 from plym.config.site import SiteConfig
 from plym.render.cache import get_store
 from plym.render.html_assembler import HtmlAssembler
+from plym.render.llms import llms_directive, llms_txt_url
 from plym.render.markdown_renderer import MarkdownRenderer
 from plym.render.reading_time import ReadingTimeCalculator
 from plym.render.stamp import compute_render_stamp
@@ -33,6 +34,7 @@ class PostPipeline:
         self._reading = ReadingTimeCalculator(site.reading.words_per_minute)
         self._store = get_store()
         self._stamp = compute_render_stamp(site, css, prism_js)
+        self._llms_url = llms_txt_url(site.public_blog_url())
 
     @property
     def render_stamp(self) -> str:
@@ -108,6 +110,9 @@ class PostPipeline:
 
     def reading_minutes(self, content: str) -> int:
         return self._reading.minutes(content)
+
+    def _markdown_artifact(self, content: str) -> str:
+        return f"{content.rstrip()}\n\n{llms_directive(self._llms_url)}\n"
 
     def _build_post_context(
         self,
@@ -205,6 +210,7 @@ class PostPipeline:
             self._prism_js,
             inject_head=self._site.inject.head,
             inject_body=self._site.inject.body,
+            llms_url=self._llms_url,
         )
 
         path = post_path(category["slug"] if category else None, slug)
@@ -218,7 +224,7 @@ class PostPipeline:
         md_target = settings.generated_dir / f"{path}.md"
         md_tmp = md_target.with_suffix(".md.tmp")
         async with aiofiles.open(md_tmp, "w", encoding="utf-8") as f:
-            await f.write(content)
+            await f.write(self._markdown_artifact(content))
         md_tmp.replace(md_target)
 
         self._store.delete_prefix("index:")
@@ -256,6 +262,7 @@ class PostPipeline:
             self._prism_js,
             inject_head=self._site.inject.head,
             inject_body=self._site.inject.body,
+            llms_url=self._llms_url,
         )
 
     def render_preview(
@@ -291,6 +298,7 @@ class PostPipeline:
             self._prism_js,
             inject_head=self._site.inject.head,
             inject_body=self._site.inject.body,
+            llms_url=self._llms_url,
         )
 
     def invalidate_index(self) -> None:
