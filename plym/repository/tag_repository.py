@@ -41,6 +41,12 @@ class TagRepository(Traced):
         row = result.mappings().first()
         return dict(row) if row else None
 
+    async def delete(self, tag_id: int) -> None:
+        await self._session.execute(
+            text("DELETE FROM public.pl_tags WHERE id = :id"),
+            {"id": tag_id},
+        )
+
     async def list_for_posts(self, post_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
         if not post_ids:
             return {}

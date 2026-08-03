@@ -25,6 +25,10 @@ class UserUpdate(BaseModel):
     links: list[ExtLink] | None = None
 
 
+class UserRoleUpdate(BaseModel):
+    role: Role
+
+
 class PasswordChange(BaseModel):
     old_password: str
     new_password: str = Field(min_length=8)

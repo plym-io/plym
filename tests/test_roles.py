@@ -78,6 +78,90 @@ async def test_non_admins_cannot_change_other_users(
 
 
 @pytest.mark.asyncio
+async def test_admin_promotes_a_reader_and_the_new_role_applies_at_once(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    user_factory: Callable[..., Awaitable[dict[str, Any]]],
+    unique_slug: str,
+) -> None:
+    reader = await user_factory(role="reader")
+    refused = await client.post(
+        "/api/posts",
+        json={"title": "nope", "slug": unique_slug, "content": "x"},
+        headers=reader["headers"],
+    )
+    assert refused.status_code == 403
+
+    promoted = await client.patch(
+        f"/api/users/{reader['id']}/role", json={"role": "editor"}, headers=auth_headers
+    )
+    assert promoted.status_code == 200, promoted.text
+    assert promoted.json()["role"] == "editor"
+
+    created = await client.post(
+        "/api/posts",
+        json={"title": "by promoted editor", "slug": unique_slug, "content": "x"},
+        headers=reader["headers"],
+    )
+    assert created.status_code == 201, created.text
+    await client.delete(f"/api/posts/{created.json()['id']}", headers=reader["headers"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["reader", "editor"])
+async def test_non_admins_cannot_change_roles(
+    client: httpx.AsyncClient,
+    user_factory: Callable[..., Awaitable[dict[str, Any]]],
+    role: str,
+) -> None:
+    actor = await user_factory(role=role)
+    target = await user_factory(role="reader")
+    r = await client.patch(
+        f"/api/users/{target['id']}/role",
+        json={"role": "administrator"},
+        headers=actor["headers"],
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"]["code"] == "auth.insufficient_role"
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_change_their_own_role(
+    client: httpx.AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    me = (await client.get("/api/users/me", headers=auth_headers)).json()
+    r = await client.patch(
+        f"/api/users/{me['id']}/role", json={"role": "reader"}, headers=auth_headers
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"]["code"] == "users.cannot_change_own_role"
+
+
+@pytest.mark.asyncio
+async def test_changing_the_role_of_an_unknown_user_is_404(
+    client: httpx.AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    r = await client.patch(
+        "/api/users/99999999/role", json={"role": "editor"}, headers=auth_headers
+    )
+    assert r.status_code == 404
+    assert r.json()["detail"]["code"] == "users.not_found"
+
+
+@pytest.mark.asyncio
+async def test_unknown_role_is_rejected(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    user_factory: Callable[..., Awaitable[dict[str, Any]]],
+) -> None:
+    target = await user_factory(role="reader")
+    r = await client.patch(
+        f"/api/users/{target['id']}/role", json={"role": "root"}, headers=auth_headers
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_editor_can_read_config(
     client: httpx.AsyncClient, user_factory: Callable[..., Awaitable[dict[str, Any]]]
 ) -> None:

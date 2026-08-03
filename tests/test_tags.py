@@ -1,4 +1,6 @@
 import uuid
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import httpx
 import pytest
@@ -73,4 +75,81 @@ async def test_tag_weight_endpoint_is_gone(
     client: httpx.AsyncClient, auth_headers: dict[str, str]
 ) -> None:
     r = await client.patch("/api/tags/1", json={"weight": 1}, headers=auth_headers)
-    assert r.status_code == 404
+    assert r.status_code == 405
+
+
+async def _tag_id(client: httpx.AsyncClient, name: str) -> int:
+    listing = (await client.get("/api/tags")).json()
+    match = next(t for t in listing if t["name"] == name)
+    return int(match["id"])
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_linked_tag_is_refused(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], unique_slug: str
+) -> None:
+    tag_name = f"qa{uuid.uuid4().hex[:10]}"
+    created = await client.post(
+        "/api/posts",
+        json={"title": "tagged", "slug": unique_slug, "content": "x", "tags": [tag_name]},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    post_id = created.json()["id"]
+    tag_id = await _tag_id(client, tag_name)
+    try:
+        r = await client.delete(f"/api/tags/{tag_id}", headers=auth_headers)
+        assert r.status_code == 428, r.text
+        assert r.json()["detail"]["code"] == "tags.in_use"
+        assert await _tag_id(client, tag_name) == tag_id
+    finally:
+        await client.delete(f"/api/posts/{post_id}", headers=auth_headers)
+
+
+@pytest.mark.asyncio
+async def test_unlinked_tag_is_deleted(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], unique_slug: str
+) -> None:
+    tag_name = f"qa{uuid.uuid4().hex[:10]}"
+    created = await client.post(
+        "/api/posts",
+        json={"title": "tagged", "slug": unique_slug, "content": "x", "tags": [tag_name]},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    post_id = created.json()["id"]
+    tag_id = await _tag_id(client, tag_name)
+    await client.delete(f"/api/posts/{post_id}", headers=auth_headers)
+
+    r = await client.delete(f"/api/tags/{tag_id}", headers=auth_headers)
+    assert r.status_code == 204, r.text
+    assert all(t["id"] != tag_id for t in (await client.get("/api/tags")).json())
+
+    again = await client.delete(f"/api/tags/{tag_id}", headers=auth_headers)
+    assert again.status_code == 404
+    assert again.json()["detail"]["code"] == "tags.not_found"
+
+
+@pytest.mark.asyncio
+async def test_readers_cannot_delete_tags(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    user_factory: Callable[..., Awaitable[dict[str, Any]]],
+    unique_slug: str,
+) -> None:
+    tag_name = f"qa{uuid.uuid4().hex[:10]}"
+    created = await client.post(
+        "/api/posts",
+        json={"title": "tagged", "slug": unique_slug, "content": "x", "tags": [tag_name]},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    post_id = created.json()["id"]
+    tag_id = await _tag_id(client, tag_name)
+    try:
+        reader = await user_factory(role="reader")
+        r = await client.delete(f"/api/tags/{tag_id}", headers=reader["headers"])
+        assert r.status_code == 403
+        assert (await client.delete(f"/api/tags/{tag_id}")).status_code == 401
+    finally:
+        await client.delete(f"/api/posts/{post_id}", headers=auth_headers)

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from plym.api.deps import CurrentUser, current_user, db_session, require_admin
 from plym.api.state import bundled_css, prism_js, site_config
 from plym.config.site import SiteConfig
-from plym.models.user import AdminPasswordReset, User, UserCreate, UserUpdate
+from plym.models.user import AdminPasswordReset, User, UserCreate, UserRoleUpdate, UserUpdate
 from plym.repository.user_repository import UserRepository
 from plym.service.auth_service import AuthService
 from plym.service.user_service import UserService
@@ -96,6 +96,16 @@ async def admin_reset_password(
 ) -> dict[str, bool]:
     await AuthService(session).admin_reset_password(user_id, payload.new_password)
     return {"ok": True}
+
+
+@router.patch("/{user_id}/role", response_model=User)
+async def change_user_role(
+    user_id: int,
+    payload: UserRoleUpdate,
+    requester: CurrentUser = Depends(require_admin),
+    service: UserService = Depends(_service),
+) -> User:
+    return await service.change_role(user_id, payload.role, requester_id=requester.id)
 
 
 @router.delete("/{user_id}/deactivate", status_code=204)
