@@ -1,3 +1,6 @@
+GENERATOR_META = '<meta name="generator" content="plym.io">'
+
+
 class HtmlAssembler:
     @staticmethod
     def inline_assets(
@@ -7,7 +10,7 @@ class HtmlAssembler:
         inject_head: str = "",
         inject_body: str = "",
     ) -> str:
-        head_payload = f"<style>{css}</style>"
+        head_payload = f"{GENERATOR_META}<style>{css}</style>"
         if inject_head:
             head_payload = f"{head_payload}{inject_head}"
         if "</head>" in html:
