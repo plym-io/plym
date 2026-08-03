@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import io
+import json
 import logging
 import re
 import tarfile
@@ -33,6 +34,14 @@ class PrismAssetError(RuntimeError):
     pass
 
 
+def _as_list(value: str | list[str] | None) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return list(value)
+
+
 def _asset_name(kind: str, value: str) -> str:
     if not _ASSET_NAME.fullmatch(value):
         raise PrismAssetError(
@@ -56,6 +65,7 @@ class PrismJsDownloader:
         archive = await self._fetch_archive()
         with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
             css_bytes = self._member(tar, f"themes/prism-{theme}.min.css")
+            languages = self._dependency_order(tar, languages)
             chunks = [self._member(tar, "components/prism-core.min.js")]
             chunks += [
                 self._member(tar, f"components/prism-{language}.min.js") for language in languages
@@ -76,6 +86,36 @@ class PrismJsDownloader:
             len(js_bytes),
         )
         return css_bytes.decode("utf-8"), js_bytes.decode("utf-8")
+
+    def _dependency_order(self, tar: tarfile.TarFile, languages: list[str]) -> list[str]:
+        catalog = json.loads(self._member(tar, "components.json").decode("utf-8"))["languages"]
+        canonical = {
+            alias: name
+            for name, entry in catalog.items()
+            if name != "meta"
+            for alias in _as_list(entry.get("alias"))
+        }
+
+        ordered: list[str] = []
+        resolved: set[str] = set()
+
+        def include(name: str, trail: frozenset[str]) -> None:
+            name = canonical.get(name, name)
+            if name in resolved:
+                return
+            if name in trail:
+                raise PrismAssetError(
+                    f"prismjs@{PRISM_VERSION} components.json declares a dependency "
+                    f"cycle involving {name!r}"
+                )
+            for dep in _as_list(catalog.get(name, {}).get("require")):
+                include(dep, trail | {name})
+            resolved.add(name)
+            ordered.append(name)
+
+        for language in languages:
+            include(language, frozenset())
+        return ordered
 
     async def _fetch_archive(self) -> bytes:
         async with aiohttp.ClientSession(
