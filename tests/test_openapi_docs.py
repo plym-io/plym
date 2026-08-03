@@ -26,21 +26,23 @@ _DOCS_PROBE = textwrap.dedent(
     paths = {getattr(route, "path", None) for route in app.routes}
     mounted = "/plym-docs" in paths and "/plym-docs/openapi.json" in paths
 
-    if not settings.debug:
-        sys.exit(0 if not mounted else 1)
-
-    if not mounted:
+    if mounted is not settings.debug:
         sys.exit(1)
 
 
     async def main() -> None:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://probe") as c:
+            anonymous = await c.get("/api/openapi.json")
+            if not settings.debug:
+                print(anonymous.status_code)
+                sys.exit(0 if anonymous.status_code == 401 else 1)
             ui = await c.get("/plym-docs")
             schema = await c.get("/plym-docs/openapi.json")
-        print(ui.status_code, schema.status_code)
+        print(anonymous.status_code, ui.status_code, schema.status_code)
         ok = (
-            ui.status_code == 200
+            anonymous.status_code == 401
+            and ui.status_code == 200
             and "swagger" in ui.text.lower()
             and schema.status_code == 200
             and schema.json()["info"]["title"] == "Plym"
@@ -54,7 +56,7 @@ _DOCS_PROBE = textwrap.dedent(
 
 
 @pytest.mark.parametrize("debug", ["true", "false"])
-def test_openapi_docs_are_mounted_only_in_debug_mode(tmp_path: Path, debug: str) -> None:
+def test_docs_are_debug_only_and_api_spec_stays_protected(tmp_path: Path, debug: str) -> None:
     storage = tmp_path / "storage"
     for name in ("_uploads", ".generated", "backups", "webfonts", "static"):
         (storage / name).mkdir(parents=True)

@@ -25,6 +25,36 @@ async def test_get_config_returns_site_settings(
 
 
 @pytest.mark.asyncio
+async def test_openapi_spec_requires_auth(client: httpx.AsyncClient) -> None:
+    r = await client.get("/api/openapi.json")
+    assert r.status_code == 401
+    assert r.json()["detail"]["code"] == "auth.token_invalid"
+
+
+@pytest.mark.asyncio
+async def test_openapi_spec_returns_schema(
+    client: httpx.AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    r = await client.get("/api/openapi.json", headers=auth_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["info"]["title"] == "Plym"
+    assert body["openapi"].startswith("3.")
+    assert "/api/posts" in body["paths"]
+    assert "get" in body["paths"]["/api/openapi.json"]
+
+
+@pytest.mark.asyncio
+async def test_openapi_spec_is_readable_by_any_role(
+    client: httpx.AsyncClient, user_factory: Callable[..., Awaitable[dict[str, Any]]]
+) -> None:
+    reader = await user_factory(role="reader")
+    r = await client.get("/api/openapi.json", headers=reader["headers"])
+    assert r.status_code == 200
+    assert r.json()["info"]["title"] == "Plym"
+
+
+@pytest.mark.asyncio
 async def test_list_users_requires_auth(client: httpx.AsyncClient) -> None:
     r = await client.get("/api/users")
     assert r.status_code == 401

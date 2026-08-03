@@ -20,6 +20,7 @@ from plym.api.categories_router import router as categories_router
 from plym.api.config_router import router as config_router
 from plym.api.faqs_router import router as faqs_router
 from plym.api.media_router import router as media_router
+from plym.api.openapi_router import router as openapi_router
 from plym.api.posts_router import router as posts_router
 from plym.api.search_router import api_router as search_api_router
 from plym.api.search_router import index_json_router
@@ -130,6 +131,7 @@ app.include_router(tags_router)
 app.include_router(categories_router)
 app.include_router(faqs_router)
 app.include_router(config_router)
+app.include_router(openapi_router)
 app.include_router(submissions_router)
 app.include_router(search_api_router)
 app.include_router(seo_router)
