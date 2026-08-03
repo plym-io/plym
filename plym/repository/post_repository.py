@@ -421,3 +421,10 @@ class PostRepository(Traced):
             {"id": category_id},
         )
         return int(result.scalar_one())
+
+    async def count_by_tag(self, tag_id: int) -> int:
+        result = await self._session.execute(
+            text("SELECT COUNT(*) FROM public.pl_post_tags WHERE tag_id = :id"),
+            {"id": tag_id},
+        )
+        return int(result.scalar_one())
