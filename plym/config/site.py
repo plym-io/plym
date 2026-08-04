@@ -64,6 +64,10 @@ class MediaConfig(BaseModel):
     location: str | None = None
 
 
+class MdUrlsConfig(BaseModel):
+    enabled: bool = False
+
+
 class RobotsConfig(BaseModel):
     serve: bool = True
     disallow_paths: list[str] = Field(default_factory=lambda: ["/api/"])
@@ -161,6 +165,7 @@ class SiteConfig(BaseModel):
     media: MediaConfig = Field(default_factory=MediaConfig)
     http_cache: HttpCacheConfig = Field(default_factory=HttpCacheConfig)
     robots: RobotsConfig = Field(default_factory=RobotsConfig)
+    md_urls: MdUrlsConfig = Field(default_factory=MdUrlsConfig)
     inject: InjectConfig = Field(default_factory=InjectConfig)
     logo: str | None = None
     favicon: str | None = None

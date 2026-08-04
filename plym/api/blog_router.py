@@ -74,6 +74,12 @@ def _split_markdown_suffix(slug: str) -> tuple[str, bool]:
     return (slug[:-3], True) if slug.endswith(".md") else (slug, False)
 
 
+def _serve_markdown_url(path: str, site: SiteConfig) -> Response:
+    if not site.md_urls.enabled:
+        raise PostNotFoundError()
+    return _serve_markdown(path, site, vary=False) or _not_found()
+
+
 def _serve_generated(path: str, site: SiteConfig, accept: str | None) -> Response:
     if accept and _ACCEPTS_MARKDOWN.search(accept):
         response = _serve_markdown(path, site, vary=True)
@@ -97,7 +103,7 @@ async def serve_post(
         raise PostNotFoundError()
     path = post_path(None, slug)
     if as_markdown:
-        return _serve_markdown(path, site, vary=False) or _not_found()
+        return _serve_markdown_url(path, site)
     return _serve_generated(path, site, accept)
 
 
@@ -113,5 +119,5 @@ async def serve_categorised_post(
         raise PostNotFoundError()
     path = post_path(category, slug)
     if as_markdown:
-        return _serve_markdown(path, site, vary=False) or _not_found()
+        return _serve_markdown_url(path, site)
     return _serve_generated(path, site, accept)
