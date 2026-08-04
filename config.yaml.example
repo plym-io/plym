@@ -21,6 +21,11 @@ http_cache:
 robots:
   serve: true
 
+# Serve the markdown twin at an explicit .md URL (/hello.md). Accept: text/markdown
+# negotiation on the canonical URL is always on, whatever this is set to.
+md_urls:
+  enabled: false
+
 inject:
   head: ""
   body: ""

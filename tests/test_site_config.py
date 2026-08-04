@@ -46,6 +46,10 @@ def test_prefix_that_would_inject_into_admin_base_href_is_rejected() -> None:
         SiteConfig(name="T", blog_home="https://t.plym.io", blog_prefix='/a"><script>')
 
 
+def test_explicit_md_urls_are_disabled_by_default() -> None:
+    assert SiteConfig(name="T").md_urls.enabled is False
+
+
 def _write_config(tmp_path: Path, prefix: str, home: str) -> Path:
     target = tmp_path / "config.yaml"
     target.write_text(f'name: T\nblog_home: "{home}"\nblog_prefix: "{prefix}"\n', encoding="utf-8")

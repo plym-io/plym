@@ -22,6 +22,7 @@ async def test_get_config_returns_site_settings(
     assert body["name"]
     assert body["blog_prefix"] in ("", "/blog")
     assert "fonts" in body and "colors" in body
+    assert isinstance(body["md_urls"]["enabled"], bool)
 
 
 @pytest.mark.asyncio
