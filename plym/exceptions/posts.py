@@ -27,3 +27,13 @@ class TemplateNotFoundError(PlymError):
 
     def __init__(self, template: str) -> None:
         super().__init__(400, f"Template '{template}' not found or invalid")
+
+
+class TooManyTabsError(PlymError):
+    code = "posts.too_many_tabs"
+
+    def __init__(self, count: int, maximum: int) -> None:
+        super().__init__(
+            400,
+            f"A tab set has {count} tabs; the maximum is {maximum}",
+        )
