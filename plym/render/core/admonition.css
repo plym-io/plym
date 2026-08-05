@@ -1,4 +1,4 @@
-.plym-content .admonition {
+.admonition {
   --plym-admon: var(--color-secondary);
   margin: 2em 0;
   padding: 0.9em 1.1em;
@@ -7,9 +7,9 @@
   background: color-mix(in srgb, var(--plym-admon) 7%, var(--color-background));
 }
 
-.plym-content .admonition > :last-child { margin-bottom: 0; }
+.admonition > :last-child { margin-bottom: 0; }
 
-.plym-content .admonition-title {
+.admonition > .admonition-title {
   font-family: var(--font-heading), system-ui, sans-serif;
   font-size: 0.82em;
   font-weight: 700;
@@ -19,12 +19,12 @@
   margin: 0 0 0.45em;
 }
 
-.plym-content .admonition.tip,
-.plym-content .admonition.hint { --plym-admon: #1A7F5A; }
+.admonition.tip,
+.admonition.hint { --plym-admon: #1A7F5A; }
 
-.plym-content .admonition.warning,
-.plym-content .admonition.attention,
-.plym-content .admonition.caution { --plym-admon: #B06D00; }
+.admonition.warning,
+.admonition.attention,
+.admonition.caution { --plym-admon: #B06D00; }
 
-.plym-content .admonition.danger,
-.plym-content .admonition.error { --plym-admon: #C0392B; }
+.admonition.danger,
+.admonition.error { --plym-admon: #C0392B; }

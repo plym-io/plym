@@ -1,4 +1,4 @@
-.plym-content .plym-gallery {
+.plym-gallery {
   display: flex;
   gap: 0.75rem;
   margin: 2.5em 0;
@@ -10,7 +10,7 @@
   scrollbar-color: color-mix(in srgb, var(--color-accent) 20%, white) transparent;
 }
 
-.plym-content .plym-gallery img {
+.plym-gallery .plym-gallery-img {
   flex: 0 0 auto;
   width: min(80%, 480px);
   height: clamp(220px, 42vh, 380px);
@@ -21,5 +21,5 @@
 }
 
 @media (max-width: 680px) {
-  .plym-content .plym-gallery img { width: 88%; }
+  .plym-gallery .plym-gallery-img { width: 88%; }
 }

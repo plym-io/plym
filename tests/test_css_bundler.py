@@ -196,6 +196,14 @@ def test_template_css_overrides_core_css(bundler: "CssBundler") -> None:
     assert css.index("padding:9px") > css.index(".admonition-title")
 
 
+def test_core_css_does_not_depend_on_a_template_wrapper() -> None:
+    for path in sorted(CORE_CSS_DIR.glob("*.css")):
+        assert ".plym-content" not in path.read_text(), (
+            f"{path.name} is scoped under .plym-content, which only the default template "
+            "declares; core styles must match on any template"
+        )
+
+
 def test_core_css_only_depends_on_bundled_variables() -> None:
     import re
 

@@ -46,7 +46,8 @@ def _gallery_image(line: str) -> str:
     match = _GALLERY_IMAGE.search(line)
     alt, src = (match.group("alt"), match.group("src")) if match else ("", line)
     return (
-        f'<img src="{html.escape(src, quote=True)}" '
+        f'<img class="plym-gallery-img" '
+        f'src="{html.escape(src, quote=True)}" '
         f'alt="{html.escape(alt, quote=True)}" '
         f'loading="lazy" decoding="async">'
     )

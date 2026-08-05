@@ -84,3 +84,8 @@ def test_gallery_still_renders_alongside_blocks(renderer: MarkdownRenderer) -> N
     html, _ = renderer.render("/// note | T\nb\n///\n\n```gallery\n![a](/media/a.webp)\n```")
     assert 'class="plym-gallery"' in html
     assert 'class="admonition note"' in html
+
+
+def test_gallery_images_carry_their_own_class(renderer: MarkdownRenderer) -> None:
+    html, _ = renderer.render("```gallery\n![a](/media/a.webp)\n```")
+    assert 'class="plym-gallery-img"' in html
