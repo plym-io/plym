@@ -7,9 +7,12 @@ import markdown
 from markdown.extensions import Extension
 from markdown.treeprocessors import Treeprocessor
 
+from plym.exceptions.posts import TooManyTabsError
 from plym.render.sanitizer import sanitize
 
 _GALLERY_IMAGE = re.compile(r"!\[(?P<alt>.*?)\]\((?P<src>\S+?)(?:\s+\"[^\"]*\")?\)")
+
+MAX_TABS = 6
 
 
 class LazyImageTreeprocessor(Treeprocessor):  # type: ignore[misc]
@@ -22,6 +25,21 @@ class LazyImageTreeprocessor(Treeprocessor):  # type: ignore[misc]
 class LazyImageExtension(Extension):  # type: ignore[misc]
     def extendMarkdown(self, md: markdown.Markdown) -> None:
         md.treeprocessors.register(LazyImageTreeprocessor(md), "plym_lazy_images", 5)
+
+
+class TabLimitTreeprocessor(Treeprocessor):  # type: ignore[misc]
+    def run(self, root: Element) -> None:
+        for div in root.iter("div"):
+            if "tabbed-set" not in div.get("class", "").split():
+                continue
+            count = sum(1 for child in div if child.tag == "input")
+            if count > MAX_TABS:
+                raise TooManyTabsError(count, MAX_TABS)
+
+
+class TabLimitExtension(Extension):  # type: ignore[misc]
+    def extendMarkdown(self, md: markdown.Markdown) -> None:
+        md.treeprocessors.register(TabLimitTreeprocessor(md), "plym_tab_limit", 4)
 
 
 def _gallery_image(line: str) -> str:
@@ -60,7 +78,10 @@ class MarkdownRenderer:
                 "pymdownx.tasklist",
                 "pymdownx.highlight",
                 "pymdownx.superfences",
+                "pymdownx.blocks.admonition",
+                "pymdownx.blocks.tab",
                 LazyImageExtension(),
+                TabLimitExtension(),
             ],
             extension_configs={
                 "toc": {
@@ -73,6 +94,9 @@ class MarkdownRenderer:
                 # which the shipped Prism theme has no rules for.
                 "pymdownx.highlight": {
                     "use_pygments": False,
+                },
+                "pymdownx.blocks.tab": {
+                    "alternate_style": True,
                 },
                 "pymdownx.superfences": {
                     "custom_fences": [

@@ -1,11 +1,15 @@
 import importlib
 import os
+from pathlib import Path
 
 import pytest
 
 os.environ.setdefault("PLYM_JWT_SECRET", "plym-css-bundler-unit-tests")
 
-minify = importlib.import_module("plym.build.css_bundler").minify
+_module = importlib.import_module("plym.build.css_bundler")
+minify = _module.minify
+CssBundler = _module.CssBundler
+CORE_CSS_DIR = _module.CORE_CSS_DIR
 
 
 def test_clamp_preserves_whitespace_around_plus() -> None:
@@ -163,3 +167,49 @@ def test_unbalanced_math_function_is_rejected() -> None:
 def test_unterminated_string_is_rejected() -> None:
     with pytest.raises(ValueError):
         minify('a::before{content:"oops}')
+
+
+@pytest.fixture
+def bundler(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> "CssBundler":
+    from plym.config.site import SiteConfig
+
+    settings = importlib.import_module("plym.settings").settings
+    monkeypatch.setattr(settings, "static_dir", tmp_path / "static")
+    monkeypatch.setattr(settings, "templates_dir", tmp_path / "templates")
+    css_dir = tmp_path / "templates" / "default" / "css"
+    css_dir.mkdir(parents=True)
+    (css_dir / "components.css").write_text(".plym-content .admonition{padding:9px}")
+    site = SiteConfig(name="T")
+    site.prism.enabled = False
+    return CssBundler(site)
+
+
+def test_core_css_is_bundled_for_every_template(bundler: "CssBundler") -> None:
+    css = bundler.build()
+    assert ".admonition-title" in css
+    assert ".tabbed-labels" in css
+    assert ".plym-gallery" in css
+
+
+def test_template_css_overrides_core_css(bundler: "CssBundler") -> None:
+    css = bundler.build()
+    assert css.index("padding:9px") > css.index(".admonition-title")
+
+
+def test_core_css_only_depends_on_bundled_variables() -> None:
+    import re
+
+    guaranteed = {
+        "--color-primary",
+        "--color-secondary",
+        "--color-accent",
+        "--color-background",
+        "--font-heading",
+        "--font-body",
+    }
+    for path in sorted(CORE_CSS_DIR.glob("*.css")):
+        source = path.read_text()
+        declared = set(re.findall(r"(--[\w-]+)\s*:", source))
+        referenced = set(re.findall(r"var\((--[\w-]+)", source))
+        unresolved = referenced - guaranteed - declared
+        assert not unresolved, f"{path.name} references template-local vars {unresolved}"

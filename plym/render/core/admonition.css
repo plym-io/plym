@@ -1,0 +1,30 @@
+.plym-content .admonition {
+  --plym-admon: var(--color-secondary);
+  margin: 2em 0;
+  padding: 0.9em 1.1em;
+  border-left: 3px solid var(--plym-admon);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--plym-admon) 7%, var(--color-background));
+}
+
+.plym-content .admonition > :last-child { margin-bottom: 0; }
+
+.plym-content .admonition-title {
+  font-family: var(--font-heading), system-ui, sans-serif;
+  font-size: 0.82em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--plym-admon);
+  margin: 0 0 0.45em;
+}
+
+.plym-content .admonition.tip,
+.plym-content .admonition.hint { --plym-admon: #1A7F5A; }
+
+.plym-content .admonition.warning,
+.plym-content .admonition.attention,
+.plym-content .admonition.caution { --plym-admon: #B06D00; }
+
+.plym-content .admonition.danger,
+.plym-content .admonition.error { --plym-admon: #C0392B; }

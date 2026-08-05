@@ -43,6 +43,8 @@ _COLOR_FUNCTIONS = frozenset(
 
 _GUARDED_FUNCTIONS = _MATH_FUNCTIONS | _COLOR_FUNCTIONS
 
+CORE_CSS_DIR = Path(__file__).resolve().parent.parent / "render" / "core"
+
 _TOKEN_FORMAT = "__PLYM_CSS_GUARD_{0}__"
 _TOKEN_RE = re.compile(r"__PLYM_CSS_GUARD_(\d+)__")
 _SCAN_RE = re.compile(r"/\*|[\"']|([-\w]+)\s*\(")
@@ -166,15 +168,18 @@ class CssBundler:
     def _read(self, path: Path) -> str:
         return path.read_text(encoding="utf-8") if path.exists() else ""
 
-    def _template_css(self, template: str) -> str:
-        css_dir = settings.templates_dir / template / "css"
+    def _dir_css(self, css_dir: Path) -> str:
         if not css_dir.exists():
             return ""
         return "\n".join(self._read(p) for p in sorted(css_dir.glob("*.css")))
 
+    def _template_css(self, template: str) -> str:
+        return self._dir_css(settings.templates_dir / template / "css")
+
     def build(self) -> str:
         fonts = self._read(settings.static_dir / "fonts.css")
         prism = self._read(settings.static_dir / "prism.css") if self._site.prism.enabled else ""
+        core = self._dir_css(CORE_CSS_DIR)
         template = self._template_css(self._site.template)
         combined = "\n".join(
             chunk
@@ -183,6 +188,7 @@ class CssBundler:
                 self._fonts_vars(self._site.fonts),
                 fonts,
                 prism,
+                core,
                 template,
             )
             if chunk
