@@ -10,6 +10,9 @@ async def create_post(post: PostCreate) -> Post:
     `faqs` (FAQ ids, see `list_faqs`) and tags with `tags` (plain names,
     created on the fly). The post starts as a draft; call `publish_post` to
     take it live.
+
+    Set `published_at` to carry over the original date of a post written
+    elsewhere; `publish_post` keeps it instead of stamping the current time.
     """
     return await client.create_post(credentials(), post)
 
@@ -25,7 +28,9 @@ async def update_post(post_id: int, edit: PostEdit) -> Post:
     """Update a post's fields, or attach a category, FAQs or tags to it.
 
     Only the fields set in `edit` are changed; omitted fields keep their
-    current value. Publishing is separate: use `publish_post`.
+    current value. `published_at` moves the post's publication date, which
+    re-renders a live post under the new date. Publishing is separate: use
+    `publish_post`.
     """
     return await client.update_post(credentials(), post_id, edit)
 

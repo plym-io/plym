@@ -509,3 +509,123 @@ async def test_patch_weight_set_and_clear(
         assert r.json()["weight"] is None
     finally:
         await client.delete(f"/api/posts/{post['id']}", headers=auth_headers)
+
+
+@pytest.mark.asyncio
+async def test_backdate_survives_publishing(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], unique_slug: str
+) -> None:
+    backdate = "2020-01-15T09:30:00Z"
+    r = await client.post(
+        "/api/posts",
+        json={
+            "title": "backdated",
+            "slug": unique_slug,
+            "content": "x",
+            "published_at": backdate,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    post_id = r.json()["id"]
+    try:
+        assert r.json()["published_at"] == backdate
+
+        r = await client.patch(
+            f"/api/posts/{post_id}", json={"status": "published"}, headers=auth_headers
+        )
+        assert r.status_code == 200
+        assert r.json()["published_at"] == backdate
+    finally:
+        await client.delete(f"/api/posts/{post_id}", headers=auth_headers)
+
+
+@pytest.mark.asyncio
+async def test_backdating_a_published_post_rerenders_it(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], unique_slug: str
+) -> None:
+    r = await client.post(
+        "/api/posts",
+        json={"title": "rebackdated", "slug": unique_slug, "content": "# hi"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201
+    post_id = r.json()["id"]
+    try:
+        r = await client.patch(
+            f"/api/posts/{post_id}", json={"status": "published"}, headers=auth_headers
+        )
+        assert r.status_code == 200
+        stamped_at_publish = r.json()["published_at"]
+
+        backdate = "2019-03-04T12:00:00Z"
+        r = await client.patch(
+            f"/api/posts/{post_id}", json={"published_at": backdate}, headers=auth_headers
+        )
+        assert r.status_code == 200
+        assert r.json()["published_at"] == backdate
+        assert r.json()["published_at"] != stamped_at_publish
+
+        served = await client.get(f"/{unique_slug}")
+        assert served.status_code == 200
+        published_meta = 'property="article:published_time" content="2019-03-04T12:00:00+00:00"'
+        assert published_meta in served.text
+        assert "March 04, 2019" in served.text
+    finally:
+        await client.delete(f"/api/posts/{post_id}", headers=auth_headers)
+
+
+@pytest.mark.asyncio
+async def test_naive_publish_date_is_read_as_utc(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], unique_slug: str
+) -> None:
+    r = await client.post(
+        "/api/posts",
+        json={
+            "title": "naive date",
+            "slug": unique_slug,
+            "content": "x",
+            "published_at": "2021-06-01T08:30:00",
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    post_id = r.json()["id"]
+    try:
+        assert r.json()["published_at"] == "2021-06-01T08:30:00Z"
+    finally:
+        await client.delete(f"/api/posts/{post_id}", headers=auth_headers)
+
+
+@pytest.mark.asyncio
+async def test_publish_date_cleared_with_null(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], unique_slug: str
+) -> None:
+    r = await client.post(
+        "/api/posts",
+        json={
+            "title": "clearable date",
+            "slug": unique_slug,
+            "content": "x",
+            "published_at": "2018-08-08T00:00:00Z",
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201
+    post_id = r.json()["id"]
+    try:
+        assert r.json()["published_at"] == "2018-08-08T00:00:00Z"
+
+        r = await client.patch(
+            f"/api/posts/{post_id}", json={"published_at": None}, headers=auth_headers
+        )
+        assert r.status_code == 200
+        assert r.json()["published_at"] is None
+
+        r = await client.patch(
+            f"/api/posts/{post_id}", json={"status": "published"}, headers=auth_headers
+        )
+        assert r.status_code == 200
+        assert r.json()["published_at"] is not None
+    finally:
+        await client.delete(f"/api/posts/{post_id}", headers=auth_headers)

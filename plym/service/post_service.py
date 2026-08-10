@@ -105,6 +105,7 @@ class PostService(Traced):
             reading_time=reading_time,
             weight=payload.weight,
             category_id=payload.category_id,
+            published_at=payload.published_at,
         )
         if payload.tags:
             tag_ids = await self._ensure_tags(payload.tags)
