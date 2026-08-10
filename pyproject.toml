@@ -71,6 +71,7 @@ extend-immutable-calls = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"plym/render/colon_blocks.py" = ["N802"]
 "plym/render/markdown_renderer.py" = ["N802"]
 
 [tool.mypy]
@@ -83,6 +84,8 @@ module = [
     "aiofiles",
     "csscompressor",
     "markdown",
+    "markdown.blockparser",
+    "markdown.blockprocessors",
     "markdown.extensions",
     "markdown.treeprocessors",
     "markdownify",
