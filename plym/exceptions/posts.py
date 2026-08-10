@@ -37,3 +37,31 @@ class TooManyTabsError(PlymError):
             400,
             f"A tab set has {count} tabs; the maximum is {maximum}",
         )
+
+
+class UnclosedBlockError(PlymError):
+    code = "posts.unclosed_block"
+
+    def __init__(self, name: str) -> None:
+        super().__init__(400, f"Block ':::{name}' is never closed by a ':::' line")
+
+
+class MisplacedTabError(PlymError):
+    code = "posts.misplaced_tab"
+
+    def __init__(self) -> None:
+        super().__init__(400, "':::tab' is only valid inside a ':::tabs' block")
+
+
+class TabSetContentError(PlymError):
+    code = "posts.tab_set_content"
+
+    def __init__(self) -> None:
+        super().__init__(400, "A ':::tabs' block may only contain ':::tab <name>' blocks")
+
+
+class EmptyTabSetError(PlymError):
+    code = "posts.empty_tab_set"
+
+    def __init__(self) -> None:
+        super().__init__(400, "A ':::tabs' block contains no tabs")
