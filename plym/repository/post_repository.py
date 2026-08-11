@@ -1,5 +1,6 @@
 import json
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import RowMapping, text
@@ -80,6 +81,7 @@ class PostRepository(Traced):
         reading_time: int,
         weight: int | None = None,
         category_id: int | None = None,
+        published_at: datetime | None = None,
     ) -> int:
         try:
             result = await self._session.execute(
@@ -87,9 +89,10 @@ class PostRepository(Traced):
                     """
                     INSERT INTO public.pl_posts
                         (slug, title, author_id, content, excerpt, cover,
-                         canonical_url, reading_time, weight, category_id)
+                         canonical_url, reading_time, weight, category_id, published_at)
                     VALUES (:slug, :title, :author_id, :content, :excerpt, :cover,
-                            :canonical_url, :reading_time, :weight, :category_id)
+                            :canonical_url, :reading_time, :weight, :category_id,
+                            :published_at)
                     RETURNING id
                     """
                 ),
@@ -104,6 +107,7 @@ class PostRepository(Traced):
                     "reading_time": reading_time,
                     "weight": weight,
                     "category_id": category_id,
+                    "published_at": published_at,
                 },
             )
             return int(result.scalar_one())
@@ -121,6 +125,7 @@ class PostRepository(Traced):
         "reading_time",
         "weight",
         "category_id",
+        "published_at",
     }
 
     async def update_fields(self, post_id: int, fields: dict[str, Any]) -> None:

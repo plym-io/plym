@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
 
 from plym.models.category import Category
 from plym.models.common import PostStatus, Timestamped
@@ -9,6 +10,13 @@ from plym.models.tag import Tag
 from plym.models.user import UserPublic
 
 _URL_PATTERN = r"^https?://.+"
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value
+
+
+PublishDate = Annotated[datetime, AfterValidator(_as_utc)]
 
 
 class PostCreate(BaseModel):
@@ -20,6 +28,7 @@ class PostCreate(BaseModel):
     canonical_url: str | None = Field(default=None, max_length=2048, pattern=_URL_PATTERN)
     weight: int | None = None
     category_id: int | None = None
+    published_at: PublishDate | None = None
     tags: list[str] = Field(default_factory=list)
     faqs: list[int] = Field(default_factory=list)
 
@@ -35,6 +44,7 @@ class PostEdit(BaseModel):
     canonical_url: str | None = Field(default=None, max_length=2048, pattern=_URL_PATTERN)
     weight: int | None = None
     category_id: int | None = None
+    published_at: PublishDate | None = None
     tags: list[str] | None = None
     faqs: list[int] | None = None
 
