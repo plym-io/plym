@@ -16,7 +16,7 @@ from plym.repository.post_repository import PostRepository
 from plym.repository.token_repository import RefreshTokenRepository
 from plym.repository.user_repository import UserRepository
 from plym.service.post_pipeline import PostPipeline
-from plym.service.search_index_service import SearchIndexService
+from plym.service.site_files_service import refresh_site_artifacts
 
 log = logging.getLogger("plym.users")
 
@@ -66,7 +66,7 @@ class UserService(Traced):
             self._pipeline.invalidate_index()
             await self._rerender_authored_posts(user_id)
             if before.display_name != after.display_name:
-                await SearchIndexService(self._session, self._site).refresh()
+                await refresh_site_artifacts(self._session, self._site)
         return after
 
     async def change_role(self, user_id: int, role: Role, *, requester_id: int) -> User:

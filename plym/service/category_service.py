@@ -17,7 +17,7 @@ from plym.render.urls import RESERVED_SEGMENTS
 from plym.repository.category_repository import CategoryRepository
 from plym.repository.post_repository import PostRepository
 from plym.service.post_pipeline import PostPipeline
-from plym.service.search_index_service import SearchIndexService
+from plym.service.site_files_service import refresh_site_artifacts
 
 log = logging.getLogger("plym.categories")
 
@@ -91,7 +91,7 @@ class CategoryService(Traced):
 
         if fields.get("slug", existing["slug"]) != existing["slug"]:
             await self._move_rendered_posts(category_id, existing["slug"])
-            await SearchIndexService(self._session, self._site).refresh()
+            await refresh_site_artifacts(self._session, self._site)
         return Category.model_validate(row)
 
     async def delete(self, category_id: int) -> None:

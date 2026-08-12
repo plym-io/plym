@@ -20,7 +20,7 @@ from plym.repository.faq_repository import FaqRepository
 from plym.repository.post_repository import PostRepository
 from plym.repository.tag_repository import TagRepository
 from plym.service.post_pipeline import PostPipeline
-from plym.service.search_index_service import SearchIndexService
+from plym.service.site_files_service import refresh_site_artifacts
 
 
 class PostService(Traced):
@@ -152,7 +152,7 @@ class PostService(Traced):
 
         if is_published or was_published:
             post = await self.refresh(post_id)
-            await SearchIndexService(self._session, self._site).refresh()
+            await refresh_site_artifacts(self._session, self._site)
             return post
         return await self.get(post_id)
 
@@ -265,7 +265,7 @@ class PostService(Traced):
         self._pipeline.remove_rendered(post.slug, post.category.slug if post.category else None)
         self._pipeline.invalidate_index()
         if was_published:
-            await SearchIndexService(self._session, self._site).refresh()
+            await refresh_site_artifacts(self._session, self._site)
 
     def preview(
         self,
