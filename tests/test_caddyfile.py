@@ -107,16 +107,16 @@ def test_every_caddy_cache_header_comes_from_the_policy_table() -> None:
 
 
 def test_the_policy_table_covers_every_resource_caddy_serves() -> None:
+    # Serving bytes off disk is the trigger, not setting a header. Requiring a header here
+    # would exempt the one shape this guard exists for: a file_server route with no cache
+    # policy at all, which is exactly what robots.txt was before spec item 4.
     source = CADDYFILE.read_text(encoding="utf-8")
-    serving = {
-        matcher
-        for matcher, body in _leaf_handlers(source)
-        if "file_server" in body and "Cache-Control" in body
-    }
+    serving = {matcher for matcher, body in _leaf_handlers(source) if "file_server" in body}
     uncovered = serving - set(CADDY_POLICIES)
     assert not uncovered, (
-        "Caddy serves these off disk with a cache header the policy table does not pin, so "
-        f"they can drift from the app's answer for the same resource: {uncovered}"
+        "Caddy serves these off disk without a cache policy the table pins, so either they "
+        "send a header that can drift from the app's answer for the same resource, or they "
+        f"send none and inherit whatever an intermediary decides: {uncovered}"
     )
 
 
@@ -159,3 +159,31 @@ def test_remote_images_survive_the_sanitizer_the_policy_has_to_allow() -> None:
     assert "src" in ALLOWED_ATTRIBUTES["img"]
     assert "https" in ALLOWED_URL_SCHEMES
     assert "https:" in _blog_csp()["img-src"]
+
+
+def _with_extra_route(source: str, block: str) -> str:
+    anchor = "\thandle /static/* {"
+    assert anchor in source, "the Caddyfile no longer has the block this fixture appends after"
+    return source.replace(anchor, f"{block}\n\n{anchor}", 1)
+
+
+def test_the_coverage_guard_catches_a_route_that_sets_no_header_at_all() -> None:
+    # The regression this pins: the guard used to require "Cache-Control" in the body before
+    # examining a route, so a file_server that set no policy — item 4's exact shape — passed.
+    source = CADDYFILE.read_text(encoding="utf-8")
+    headerless = _with_extra_route(
+        source, "\thandle /extras/* {\n\t\troot * /srv/storage\n\t\tfile_server\n\t}"
+    )
+    serving = {matcher for matcher, body in _leaf_handlers(headerless) if "file_server" in body}
+    assert "/extras/*" in serving - set(CADDY_POLICIES)
+
+
+def test_the_coverage_guard_still_catches_a_route_that_sets_an_unpinned_header() -> None:
+    source = CADDYFILE.read_text(encoding="utf-8")
+    withheader = _with_extra_route(
+        source,
+        "\thandle /extras/* {\n\t\troot * /srv/storage\n"
+        '\t\theader Cache-Control "public, max-age=31536000, immutable"\n\t\tfile_server\n\t}',
+    )
+    serving = {matcher for matcher, body in _leaf_handlers(withheader) if "file_server" in body}
+    assert "/extras/*" in serving - set(CADDY_POLICIES)
