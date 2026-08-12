@@ -118,3 +118,44 @@ def test_the_policy_table_covers_every_resource_caddy_serves() -> None:
         "Caddy serves these off disk with a cache header the policy table does not pin, so "
         f"they can drift from the app's answer for the same resource: {uncovered}"
     )
+
+
+# The sanitizer keeps remote images in post bodies (ALLOWED_TAGS has img, ALLOWED_URL_SCHEMES
+# has https) and the default post template renders author.avatar_url verbatim. A policy that
+# forbids loading them would have plym render content it then guarantees the browser drops.
+# Everything that actually governs authored HTML stays exactly as strict.
+CSP_DIRECTIVES = {
+    "default-src": "'self'",
+    "script-src": "'self' 'unsafe-inline'",
+    "style-src": "'self' 'unsafe-inline'",
+    "img-src": "'self' data: https:",
+    "font-src": "'self'",
+    "object-src": "'none'",
+    "base-uri": "'self'",
+    "frame-ancestors": "'none'",
+    "form-action": "'self'",
+}
+
+
+def _blog_csp() -> dict[str, str]:
+    source = CADDYFILE.read_text(encoding="utf-8")
+    match = re.search(r'header @notdocs Content-Security-Policy "([^"]*)"', source)
+    assert match, "the blog Content-Security-Policy is no longer set where this test looks"
+    return {
+        directive.split(" ", 1)[0]: directive.split(" ", 1)[1]
+        for directive in (part.strip() for part in match.group(1).split(";"))
+        if directive
+    }
+
+
+def test_the_blog_content_security_policy_is_pinned() -> None:
+    assert _blog_csp() == CSP_DIRECTIVES
+
+
+def test_remote_images_survive_the_sanitizer_the_policy_has_to_allow() -> None:
+    from plym.render.sanitizer import ALLOWED_ATTRIBUTES, ALLOWED_TAGS, ALLOWED_URL_SCHEMES
+
+    assert "img" in ALLOWED_TAGS
+    assert "src" in ALLOWED_ATTRIBUTES["img"]
+    assert "https" in ALLOWED_URL_SCHEMES
+    assert "https:" in _blog_csp()["img-src"]
