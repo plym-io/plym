@@ -12,12 +12,6 @@ prism:
 logo: https://plym.blob.core.windows.net/assets/logo.webp
 favicon: https://plym.blob.core.windows.net/assets/favicon.ico
 
-http_cache:
-  enabled: true
-  max_age: 300
-  index_max_age: 60
-  public: true
-
 robots:
   serve: true
 

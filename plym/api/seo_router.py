@@ -9,6 +9,7 @@ from plym.api.deps import db_session
 from plym.api.state import site_config
 from plym.config.site import SiteConfig
 from plym.exceptions.posts import PostNotFoundError
+from plym.render.cache_policy import CachePolicy
 from plym.render.urls import path_for_row
 from plym.repository.post_repository import PostRepository
 
@@ -79,11 +80,11 @@ async def sitemap(
             break
     lines.append("</urlset>")
     body = "\n".join(lines)
-    headers = {}
-    header = site.http_cache.header_for_index()
-    if header:
-        headers["Cache-Control"] = header
-    return Response(content=body, media_type="application/xml", headers=headers)
+    return Response(
+        content=body,
+        media_type="application/xml",
+        headers={"Cache-Control": CachePolicy.LISTING.value},
+    )
 
 
 @router.get("/llms.txt")
@@ -106,11 +107,11 @@ async def llms_txt(
             break
 
     body = _llms_body(site, base, entries)
-    headers = {}
-    header = site.http_cache.header_for_index()
-    if header:
-        headers["Cache-Control"] = header
-    return Response(content=body, media_type="text/markdown", headers=headers)
+    return Response(
+        content=body,
+        media_type="text/markdown",
+        headers={"Cache-Control": CachePolicy.LISTING.value},
+    )
 
 
 @router.get("/robots.txt", response_class=PlainTextResponse)
@@ -123,4 +124,4 @@ async def robots(site: SiteConfig = Depends(site_config)) -> PlainTextResponse:
     lines.append("")
     lines.append(f"Sitemap: {site.public_blog_url()}/sitemap.xml")
     body = "\n".join(lines) + "\n"
-    return PlainTextResponse(content=body)
+    return PlainTextResponse(content=body, headers={"Cache-Control": CachePolicy.LISTING.value})
