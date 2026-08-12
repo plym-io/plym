@@ -1,9 +1,11 @@
 import uuid
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
+import yaml
 
 from tests.conftest import TEST_MODE
 
@@ -195,3 +197,53 @@ async def test_markdown_suffix_for_an_unknown_post_is_not_found(
     md_urls(True)
     r = await client.get(f"/{unique_slug}.md")
     assert r.status_code == 404
+
+
+def _served_md_urls_enabled() -> bool:
+    if TEST_MODE == "inprocess":
+        from plym.main import app
+
+        return bool(app.state.site.md_urls.enabled)
+    raw = yaml.safe_load(Path("config.yaml").read_text(encoding="utf-8")) or {}
+    return bool((raw.get("md_urls") or {}).get("enabled", False))
+
+
+@pytest.mark.asyncio
+async def test_md_url_visibility_follows_the_served_config(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], unique_slug: str
+) -> None:
+    enabled = _served_md_urls_enabled()
+    post_id = await _publish(client, auth_headers, unique_slug)
+    try:
+        explicit = await client.get(f"/{unique_slug}.md")
+        assert explicit.status_code == (200 if enabled else 404)
+
+        negotiated = await client.get(f"/{unique_slug}", headers={"Accept": "text/markdown"})
+        assert negotiated.status_code == 200
+        assert negotiated.headers["content-type"].startswith("text/markdown")
+    finally:
+        await client.delete(f"/api/posts/{post_id}", headers=auth_headers)
+
+
+@pytest.mark.asyncio
+async def test_negotiated_markdown_revalidates_with_its_etag(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    unique_slug: str,
+    md_urls: Callable[[bool], None],
+) -> None:
+    md_urls(True)
+    post_id = await _publish(client, auth_headers, unique_slug)
+    try:
+        first = await client.get(f"/{unique_slug}.md")
+        assert first.status_code == 200
+        etag = first.headers["etag"]
+
+        again = await client.get(f"/{unique_slug}.md", headers={"If-None-Match": etag})
+        assert again.status_code == 304
+        assert not again.content
+
+        stale = await client.get(f"/{unique_slug}.md", headers={"If-None-Match": '"nope"'})
+        assert stale.status_code == 200
+    finally:
+        await client.delete(f"/api/posts/{post_id}", headers=auth_headers)
