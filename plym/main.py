@@ -15,7 +15,7 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from plym.api.auth_router import router as auth_router
-from plym.api.blog_router import index_router, serve_index
+from plym.api.blog_router import index_router
 from plym.api.blog_router import posts_router as blog_posts_router
 from plym.api.categories_router import router as categories_router
 from plym.api.config_router import router as config_router
@@ -36,6 +36,7 @@ from plym.db.session import dispose_engine
 from plym.instrumentation.middleware import ActorMiddleware
 from plym.instrumentation.redirects import CanonicalRedirectMiddleware
 from plym.instrumentation.telemetry import configure_telemetry
+from plym.render.cache_policy import REDIRECT_CACHE_CONTROL
 from plym.service.backup_service import BackupScheduler
 from plym.service.bootstrap import ensure_superuser
 from plym.service.post_pipeline import PostPipeline
@@ -139,6 +140,12 @@ app.include_router(seo_router)
 app.include_router(index_json_router)
 
 
+def _canonical_redirect(location: str) -> RedirectResponse:
+    return RedirectResponse(
+        location, status_code=308, headers={"Cache-Control": REDIRECT_CACHE_CONTROL}
+    )
+
+
 SHELL_CACHE_CONTROL = "no-store"
 HASHED_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 UNHASHED_ASSET_CACHE_CONTROL = "no-cache"
@@ -187,15 +194,13 @@ if _prefix:
     app.include_router(index_json_router, prefix=_prefix, include_in_schema=False)
 
     async def _index_redirect() -> RedirectResponse:
-        return RedirectResponse(f"{_prefix}/", status_code=308)
+        return _canonical_redirect(f"{_prefix}/")
 
     app.add_api_route(_prefix, _index_redirect, include_in_schema=False)
-    app.add_api_route(
-        f"{_prefix}/", serve_index, response_class=HTMLResponse, include_in_schema=False
-    )
+    app.include_router(index_router, prefix=_prefix, include_in_schema=False)
 
     async def _root_redirect() -> RedirectResponse:
-        return RedirectResponse(f"{_prefix}/", status_code=308)
+        return _canonical_redirect(f"{_prefix}/")
 
     app.add_api_route("/", _root_redirect, include_in_schema=False)
     app.mount(
@@ -212,7 +217,7 @@ else:
 if _admin_available:
 
     async def _admin_redirect() -> RedirectResponse:
-        return RedirectResponse(f"{_prefix}/plym-admin/", status_code=308)
+        return _canonical_redirect(f"{_prefix}/plym-admin/")
 
     app.add_api_route(f"{_prefix}/plym-admin", _admin_redirect, include_in_schema=False)
     app.mount(

@@ -66,7 +66,7 @@ class UserService(Traced):
             self._pipeline.invalidate_index()
             await self._rerender_authored_posts(user_id)
             if before.display_name != after.display_name:
-                await refresh_site_artifacts(self._session, self._site)
+                await refresh_site_artifacts(self._session, self._site, self._pipeline)
         return after
 
     async def change_role(self, user_id: int, role: Role, *, requester_id: int) -> User:

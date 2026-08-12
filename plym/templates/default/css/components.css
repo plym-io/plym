@@ -334,3 +334,31 @@ a:focus-visible {
   margin: 0;
 }
 
+
+.plym-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 2.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--n-border, rgba(0, 0, 0, 0.1));
+  font-family: 'Inter', sans-serif;
+  font-size: 0.9rem;
+}
+
+.plym-pagination-status {
+  color: var(--n-muted);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.plym-pagination a {
+  color: var(--color-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.plym-pagination a:hover {
+  text-decoration: underline;
+}

@@ -32,6 +32,18 @@
   {% else %}
     <p class="plym-empty">Nothing here yet. The first post is waiting to be written.</p>
   {% endif %}
+
+  {% if pagination.pages > 1 %}
+    <nav class="plym-pagination" aria-label="Pagination">
+      {% if pagination.prev_url %}
+        <a class="plym-pagination-prev" rel="prev" href="{{ pagination.prev_url }}">Newer</a>
+      {% endif %}
+      <span class="plym-pagination-status">Page {{ pagination.page }} of {{ pagination.pages }}</span>
+      {% if pagination.next_url %}
+        <a class="plym-pagination-next" rel="next" href="{{ pagination.next_url }}">Older</a>
+      {% endif %}
+    </nav>
+  {% endif %}
 </main>
 
 <footer class="plym-footer">

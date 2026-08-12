@@ -20,6 +20,9 @@ CADDY_POLICIES = {
     "@llms": CachePolicy.LISTING,
     "@robots": CachePolicy.LISTING,
     "@searchindex": CachePolicy.LISTING,
+    "@index": CachePolicy.LISTING,
+    "@indexmd": CachePolicy.MARKDOWN,
+    "@pagedindex": CachePolicy.LISTING,
 }
 
 _NAMED_MATCHER = re.compile(r"^\s*(@[\w.-]+)\s+\{\s*$", re.MULTILINE)

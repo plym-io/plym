@@ -3,10 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ site.name }}</title>
+  <title>{% if pagination.page > 1 %}{{ site.name }} — page {{ pagination.page }}{% else %}{{ site.name }}{% endif %}</title>
   <meta name="description" content="{{ site.description or site.name }}">
   {% if site.favicon %}<link rel="icon" href="{{ site.favicon }}">{% endif %}
-  <link rel="canonical" href="{{ site.public_blog_url() }}/">
+  <link rel="canonical" href="{{ pagination.canonical }}">
+  {% if pagination.prev_url %}<link rel="prev" href="{{ pagination.prev_url }}">{% endif %}
+  {% if pagination.next_url %}<link rel="next" href="{{ pagination.next_url }}">{% endif %}
   <link rel="alternate" type="text/markdown" href="{{ site.public_blog_url() }}/llms.txt">
 </head>
 <body class="plym-index">

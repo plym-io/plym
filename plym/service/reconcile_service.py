@@ -5,10 +5,10 @@ from typing import Any
 from plym.config.site import SiteConfig
 from plym.db.session import get_session_factory
 from plym.render.stamp import read_render_stamp
-from plym.render.urls import path_for_row
+from plym.render.urls import is_index_path, path_for_row
 from plym.repository.post_repository import PostRepository
 from plym.service.post_pipeline import PostPipeline
-from plym.service.site_files_service import SiteFilesService
+from plym.service.site_files_service import refresh_site_artifacts
 from plym.settings import settings
 
 log = logging.getLogger("plym.reconcile")
@@ -24,7 +24,7 @@ async def reconcile_generated_files(pipeline: PostPipeline, site: SiteConfig) ->
         log.warning("reconcile skipped — could not read published slugs: %s", exc)
         return
 
-    await _refresh_site_files(site)
+    await _refresh_artifacts(pipeline, site)
 
     removed = _remove_orphans(published)
     if removed:
@@ -50,13 +50,13 @@ def _remove_tmp_files() -> None:
         path.unlink()
 
 
-async def _refresh_site_files(site: SiteConfig) -> None:
+async def _refresh_artifacts(pipeline: PostPipeline, site: SiteConfig) -> None:
     factory = get_session_factory()
     try:
         async with factory() as session:
-            await SiteFilesService(session, site).write()
+            await refresh_site_artifacts(session, site, pipeline)
     except Exception:
-        log.exception("could not refresh the site files")
+        log.exception("could not refresh the index and site file artifacts")
 
 
 async def _published_paths() -> set[str]:
@@ -84,9 +84,13 @@ def _remove_orphans(published: set[str]) -> int:
     removed = 0
     for pattern in ("*.html", "*.md"):
         for path in settings.generated_dir.rglob(pattern):
-            if _relative_path(path) not in published:
-                path.unlink()
-                removed += 1
+            relative = _relative_path(path)
+            # The index pages are artifacts too, and no post owns them; IndexArtifactService
+            # prunes the ones that outlive their page count.
+            if is_index_path(relative) or relative in published:
+                continue
+            path.unlink()
+            removed += 1
     _prune_empty_dirs()
     return removed
 

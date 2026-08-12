@@ -91,7 +91,7 @@ class CategoryService(Traced):
 
         if fields.get("slug", existing["slug"]) != existing["slug"]:
             await self._move_rendered_posts(category_id, existing["slug"])
-            await refresh_site_artifacts(self._session, self._site)
+            await refresh_site_artifacts(self._session, self._site, self._pipeline)
         return Category.model_validate(row)
 
     async def delete(self, category_id: int) -> None:

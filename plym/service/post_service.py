@@ -19,6 +19,7 @@ from plym.repository.category_repository import CategoryRepository
 from plym.repository.faq_repository import FaqRepository
 from plym.repository.post_repository import PostRepository
 from plym.repository.tag_repository import TagRepository
+from plym.service.post_listing import PostListing
 from plym.service.post_pipeline import PostPipeline
 from plym.service.site_files_service import refresh_site_artifacts
 
@@ -32,6 +33,7 @@ class PostService(Traced):
         self._faqs = FaqRepository(session)
         self._categories = CategoryRepository(session)
         self._pipeline = PostPipeline(site, css, prism_js)
+        self._listing = PostListing(session)
 
     def _row_to_post(self, row: dict[str, Any], tags: list[dict[str, Any]]) -> Post:
         author = UserPublic(
@@ -152,7 +154,7 @@ class PostService(Traced):
 
         if is_published or was_published:
             post = await self.refresh(post_id)
-            await refresh_site_artifacts(self._session, self._site)
+            await refresh_site_artifacts(self._session, self._site, self._pipeline)
             return post
         return await self.get(post_id)
 
@@ -168,42 +170,8 @@ class PostService(Traced):
             raise PostNotFoundError()
         return self._row_to_post(row, row["tags"])
 
-    def _to_list_item(self, r: dict[str, Any], tags: list[dict[str, Any]]) -> PostListItem:
-        author = UserPublic(
-            id=r["author_id"],
-            display_name=r["display_name"],
-            avatar_url=r.get("avatar_url"),
-            links=r.get("links") or [],
-        )
-        category = r.get("category")
-        return PostListItem(
-            id=r["id"],
-            slug=r["slug"],
-            path=path_for_row(r),
-            title=r["title"],
-            status=PostStatus(r["status"]),
-            reading_time=r["reading_time"],
-            excerpt=r.get("excerpt"),
-            cover=r.get("cover"),
-            canonical_url=r.get("canonical_url"),
-            weight=r.get("weight"),
-            published_at=r.get("published_at"),
-            created_at=r["created_at"],
-            updated_at=r["updated_at"],
-            author=author,
-            category=Category.model_validate(category) if category else None,
-            tags=[Tag.model_validate(t) for t in tags],
-        )
-
-    async def _items_with_tags(self, rows: list[dict[str, Any]]) -> list[PostListItem]:
-        tags_by_post = await self._tags.list_for_posts([r["id"] for r in rows])
-        return [self._to_list_item(r, tags_by_post.get(r["id"], [])) for r in rows]
-
     async def list_published(self, *, page: int, page_size: int) -> tuple[list[PostListItem], int]:
-        offset = max(0, (page - 1) * page_size)
-        rows = await self._posts.list_published(limit=page_size, offset=offset)
-        total = int(rows[0]["total"]) if rows else await self._posts.count_published()
-        return await self._items_with_tags(rows), total
+        return await self._listing.published(page=page, page_size=page_size)
 
     async def list_all(
         self,
@@ -223,7 +191,7 @@ class PostService(Traced):
             if rows
             else await self._posts.count_all(status=status_value, search=search)
         )
-        return await self._items_with_tags(rows), total
+        return await self._listing.with_tags(rows), total
 
     async def refresh(self, post_id: int) -> Post:
         post = await self.get(post_id)
@@ -265,7 +233,7 @@ class PostService(Traced):
         self._pipeline.remove_rendered(post.slug, post.category.slug if post.category else None)
         self._pipeline.invalidate_index()
         if was_published:
-            await refresh_site_artifacts(self._session, self._site)
+            await refresh_site_artifacts(self._session, self._site, self._pipeline)
 
     def preview(
         self,
@@ -284,5 +252,5 @@ class PostService(Traced):
             canonical_url=canonical_url,
         )
 
-    def render_index(self, posts: list[dict[str, Any]]) -> str:
-        return self._pipeline.render_index(posts)
+    def render_index(self, posts: list[dict[str, Any]], page: int = 1, pages: int = 1) -> str:
+        return self._pipeline.render_index(posts, page=page, pages=pages)

@@ -86,6 +86,42 @@
 	handle_path {$PLYM_BLOG_PREFIX}/* {
 		root * /srv/storage/.generated
 
+		# ?page=N is not a cache key the edge can purge, so the app 308s it onto
+		# /page/N. Caddy must hand the query to the app rather than answer it from
+		# index.html, which ignores the query string and would serve page 1's bytes.
+		@pagedquery {
+			path /
+			query page=*
+		}
+		handle @pagedquery {
+			rewrite * {$PLYM_BLOG_PREFIX}/
+			reverse_proxy api:8000
+		}
+
+		@indexmd {
+			path /
+			header_regexp Accept (?i)(^|,)\s*text/markdown\s*(;[^,]*)?($|,)
+			file /index.md
+		}
+		handle @indexmd {
+			rewrite * /index.md
+			header Content-Type "text/markdown; charset=utf-8"
+			header Cache-Control "public, max-age=300"
+			header Vary "Accept"
+			file_server
+		}
+
+		@index {
+			path /
+			file /index.html
+		}
+		handle @index {
+			rewrite * /index.html
+			header Cache-Control "public, max-age=60"
+			header Vary "Accept"
+			file_server
+		}
+
 		@sitemap {
 			path /sitemap.xml
 			file {path}
@@ -134,6 +170,17 @@
 			rewrite * {path}.md
 			header Content-Type "text/markdown; charset=utf-8"
 			header Cache-Control "public, max-age=300"
+			header Vary "Accept"
+			file_server
+		}
+
+		@pagedindex {
+			path /page/*
+			file {path}.html
+		}
+		handle @pagedindex {
+			rewrite * {path}.html
+			header Cache-Control "public, max-age=60"
 			header Vary "Accept"
 			file_server
 		}
