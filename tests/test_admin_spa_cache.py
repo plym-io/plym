@@ -3,12 +3,13 @@ from typing import Any
 
 import pytest
 
-from plym.main import (
-    HASHED_ASSET_CACHE_CONTROL,
-    SHELL_CACHE_CONTROL,
-    UNHASHED_ASSET_CACHE_CONTROL,
-    AdminSPA,
-    admin_cache_control,
+from tests.conftest import TEST_MODE
+
+# Importing plym.main builds the app, which loads the host's config.yaml. In live mode the
+# suite is pointed at a server that already did that, so importing it here only couples these
+# tests to whatever config happens to sit next to the checkout — hence the deferred imports.
+pytestmark = pytest.mark.skipif(
+    TEST_MODE != "inprocess", reason="drives the AdminSPA class in process, not a served instance"
 )
 
 
@@ -32,6 +33,8 @@ def _scope(path: str) -> dict[str, Any]:
 
 @pytest.mark.asyncio
 async def test_the_shell_is_never_stored(admin_build: Path) -> None:
+    from plym.main import SHELL_CACHE_CONTROL, AdminSPA
+
     spa = AdminSPA(str(admin_build), "/plym-admin")
 
     for path in ("", "index.html", "posts/42"):
@@ -41,6 +44,8 @@ async def test_the_shell_is_never_stored(admin_build: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_content_hashed_bundles_are_immutable(admin_build: Path) -> None:
+    from plym.main import HASHED_ASSET_CACHE_CONTROL, AdminSPA
+
     spa = AdminSPA(str(admin_build), "/plym-admin")
 
     response = await spa.get_response(
@@ -52,6 +57,8 @@ async def test_content_hashed_bundles_are_immutable(admin_build: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_unhashed_assets_revalidate(admin_build: Path) -> None:
+    from plym.main import UNHASHED_ASSET_CACHE_CONTROL, AdminSPA
+
     spa = AdminSPA(str(admin_build), "/plym-admin")
 
     response = await spa.get_response("logo.svg", _scope("/logo.svg"))
@@ -60,6 +67,12 @@ async def test_unhashed_assets_revalidate(admin_build: Path) -> None:
 
 
 def test_only_hashed_files_under_assets_are_treated_as_immutable() -> None:
+    from plym.main import (
+        HASHED_ASSET_CACHE_CONTROL,
+        UNHASHED_ASSET_CACHE_CONTROL,
+        admin_cache_control,
+    )
+
     immutable = [
         "assets/index-BW2KWlRl.js",
         "assets/asterisk-B-8jnY81.js",
