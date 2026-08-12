@@ -134,6 +134,60 @@ async def test_delete_media_forbidden_for_non_uploader(
         await client.delete(f"/api/media/{media_id}", headers=auth_headers)
 
 
+@pytest.mark.asyncio
+async def test_media_url_follows_the_current_blog_prefix(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], png_bytes: bytes
+) -> None:
+    if os.environ.get("PLYM_TEST_MODE") != "inprocess":
+        pytest.skip("moves the running site config, so it only runs against the in-process app")
+
+    from plym.main import app
+
+    files = {"file": ("moved.png", png_bytes, "image/png")}
+    r = await client.post("/api/media", files=files, headers=auth_headers)
+    assert r.status_code == 201, r.text
+    media = r.json()
+    media_id = media["id"]
+    filename = media["filename"]
+
+    site = app.state.site
+    original_prefix = site.blog_prefix
+    try:
+        assert media["url"] == f"{original_prefix}/media/{filename}"
+        site.blog_prefix = "/moved-elsewhere"
+        again = await client.get(f"/api/media/{media_id}", headers=auth_headers)
+        assert again.status_code == 200, again.text
+        assert again.json()["url"] == f"/moved-elsewhere/media/{filename}"
+    finally:
+        site.blog_prefix = original_prefix
+        await client.delete(f"/api/media/{media_id}", headers=auth_headers)
+
+
+@pytest.mark.asyncio
+async def test_media_url_uses_the_configured_external_location(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], png_bytes: bytes
+) -> None:
+    if os.environ.get("PLYM_TEST_MODE") != "inprocess":
+        pytest.skip("moves the running site config, so it only runs against the in-process app")
+
+    from plym.main import app
+
+    files = {"file": ("cdn.png", png_bytes, "image/png")}
+    r = await client.post("/api/media", files=files, headers=auth_headers)
+    media_id = r.json()["id"]
+    filename = r.json()["filename"]
+
+    site = app.state.site
+    original_location = site.media.location
+    try:
+        site.media.location = "https://cdn.example.com/assets/"
+        again = await client.get(f"/api/media/{media_id}", headers=auth_headers)
+        assert again.json()["url"] == f"https://cdn.example.com/assets/{filename}"
+    finally:
+        site.media.location = original_location
+        await client.delete(f"/api/media/{media_id}", headers=auth_headers)
+
+
 # A blog mounted at the domain root is the one layout where `/{category}/{slug}`
 # can swallow `/media/<file>`; the app is built at import time, so the probe runs
 # in a child process against its own root-prefix config.

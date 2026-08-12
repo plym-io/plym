@@ -19,7 +19,6 @@ class MediaRepository(Traced):
         size_bytes: int,
         width: int | None,
         height: int | None,
-        url: str,
         uploader_id: int,
     ) -> dict[str, Any]:
         result = await self._session.execute(
@@ -27,11 +26,11 @@ class MediaRepository(Traced):
                 """
                 INSERT INTO public.pl_media
                     (filename, original_name, mime_type, size_bytes, width, height,
-                     url, uploader_id)
+                     uploader_id)
                 VALUES (:filename, :original_name, :mime_type, :size_bytes, :width,
-                        :height, :url, :uploader_id)
+                        :height, :uploader_id)
                 RETURNING id, filename, original_name, mime_type, size_bytes, width, height,
-                          url, uploader_id, created_at
+                          uploader_id, created_at
                 """
             ),
             {
@@ -41,7 +40,6 @@ class MediaRepository(Traced):
                 "size_bytes": size_bytes,
                 "width": width,
                 "height": height,
-                "url": url,
                 "uploader_id": uploader_id,
             },
         )
@@ -52,7 +50,7 @@ class MediaRepository(Traced):
             text(
                 """
                 SELECT id, filename, original_name, mime_type, size_bytes, width, height,
-                       url, uploader_id, created_at
+                       uploader_id, created_at
                 FROM public.pl_media
                 WHERE id = :id
                 """
@@ -67,7 +65,7 @@ class MediaRepository(Traced):
             text(
                 """
                 SELECT id, filename, original_name, mime_type, size_bytes, width, height,
-                       url, uploader_id, created_at,
+                       uploader_id, created_at,
                        COUNT(*) OVER() AS total
                 FROM public.pl_media
                 ORDER BY created_at DESC, id DESC

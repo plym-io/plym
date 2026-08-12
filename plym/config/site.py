@@ -186,6 +186,12 @@ class SiteConfig(BaseModel):
             return path
         return f"{self.public_origin()}{path}"
 
+    def media_url(self, filename: str) -> str:
+        base = (
+            self.media.location.rstrip("/") if self.media.location else f"{self.blog_prefix}/media"
+        )
+        return f"{base}/{filename}"
+
 
 class TemplatePrismConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
