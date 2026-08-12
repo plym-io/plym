@@ -8,12 +8,13 @@ from slugify import slugify
 from plym.config.site import SiteConfig
 from plym.render.cache import get_store
 from plym.render.html_assembler import HtmlAssembler
+from plym.render.index_markdown import render_index_markdown
 from plym.render.llms import llms_directive, llms_txt_url
 from plym.render.markdown_renderer import MarkdownRenderer
 from plym.render.reading_time import ReadingTimeCalculator
 from plym.render.stamp import compute_render_stamp
 from plym.render.template_renderer import TemplateRenderer
-from plym.render.urls import post_path
+from plym.render.urls import index_url, post_path
 from plym.settings import settings
 
 
@@ -254,8 +255,20 @@ class PostPipeline:
             category=row.get("category"),
         )
 
-    def render_index(self, posts: list[dict[str, Any]]) -> str:
-        rendered = self._template.render_index({"posts": posts})
+    def index_pagination(self, page: int, pages: int) -> dict[str, Any]:
+        prefix = self._site.blog_prefix
+        base = self._site.public_blog_url()
+        return {
+            "page": page,
+            "pages": pages,
+            "prev_url": index_url(prefix, page - 1) if page > 1 else None,
+            "next_url": index_url(prefix, page + 1) if page < pages else None,
+            "canonical": f"{base}{index_url('', page)}",
+        }
+
+    def render_index(self, posts: list[dict[str, Any]], page: int = 1, pages: int = 1) -> str:
+        pagination = self.index_pagination(page, pages)
+        rendered = self._template.render_index({"posts": posts, "pagination": pagination})
         return HtmlAssembler.inline_assets(
             rendered,
             self._css,
@@ -263,6 +276,21 @@ class PostPipeline:
             inject_head=self._site.inject.head,
             inject_body=self._site.inject.body,
             llms_url=self._llms_url,
+        )
+
+    def render_index_markdown(
+        self, posts: list[dict[str, Any]], page: int = 1, pages: int = 1
+    ) -> str:
+        pagination = self.index_pagination(page, pages)
+        return render_index_markdown(
+            name=self._site.name,
+            description=self._site.description,
+            base=self._site.public_blog_url(),
+            posts=posts,
+            page=page,
+            pages=pages,
+            prev_url=pagination["prev_url"],
+            next_url=pagination["next_url"],
         )
 
     def render_preview(

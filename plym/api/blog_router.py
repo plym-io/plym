@@ -1,8 +1,9 @@
 import hashlib
 import re
+from math import ceil
 
 from fastapi import APIRouter, Depends, Header, Query
-from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from plym.api.deps import db_session
@@ -10,8 +11,14 @@ from plym.api.state import bundled_css, prism_js, site_config
 from plym.config.site import SiteConfig
 from plym.exceptions.posts import PostNotFoundError
 from plym.render.cache import get_store
-from plym.render.cache_policy import CachePolicy
-from plym.render.urls import is_path_segment, post_path
+from plym.render.cache_policy import REDIRECT_CACHE_CONTROL, CachePolicy
+from plym.render.urls import (
+    INDEX_PAGE_SEGMENT,
+    index_path,
+    index_url,
+    is_path_segment,
+    post_path,
+)
 from plym.service.post_service import PostService
 from plym.settings import settings
 
@@ -19,6 +26,12 @@ index_router = APIRouter(tags=["Blog"], include_in_schema=False)
 posts_router = APIRouter(tags=["Blog"], include_in_schema=False)
 
 _ACCEPTS_MARKDOWN = re.compile(r"(^|,)\s*text/markdown\s*(;[^,]*)?($|,)", re.IGNORECASE)
+
+
+def _canonical_redirect(location: str) -> RedirectResponse:
+    return RedirectResponse(
+        location, status_code=308, headers={"Cache-Control": REDIRECT_CACHE_CONTROL}
+    )
 
 
 def _with_cache_header(html: str, policy: CachePolicy) -> HTMLResponse:
@@ -30,23 +43,75 @@ def _with_cache_header(html: str, policy: CachePolicy) -> HTMLResponse:
 
 @index_router.get("/", response_class=HTMLResponse)
 async def serve_index(
-    page: int = Query(1, ge=1),
+    page: int | None = Query(None, ge=1),
     site: SiteConfig = Depends(site_config),
     css: str = Depends(bundled_css),
     prism: str = Depends(prism_js),
     session: AsyncSession = Depends(db_session),
+    accept: str | None = Header(default=None),
+    if_none_match: str | None = Header(default=None),
+) -> Response:
+    # A purgeable edge cache has to drop the query string from its key, or ?page=2 and
+    # every other variant become entries a purge by URL cannot reach. Paginating on the
+    # query and being an artifact cannot both be true, so the path form is canonical.
+    if page is not None:
+        return _canonical_redirect(index_url(site.blog_prefix, page))
+    return await _serve_index_page(1, site, css, prism, session, accept, if_none_match)
+
+
+@index_router.get(f"/{INDEX_PAGE_SEGMENT}/{{page}}", response_class=HTMLResponse)
+async def serve_index_page(
+    page: int,
+    site: SiteConfig = Depends(site_config),
+    css: str = Depends(bundled_css),
+    prism: str = Depends(prism_js),
+    session: AsyncSession = Depends(db_session),
+    accept: str | None = Header(default=None),
+    if_none_match: str | None = Header(default=None),
+) -> Response:
+    if page < 2:
+        return _canonical_redirect(index_url(site.blog_prefix, 1))
+    return await _serve_index_page(page, site, css, prism, session, accept, if_none_match)
+
+
+async def _serve_index_page(
+    page: int,
+    site: SiteConfig,
+    css: str,
+    prism: str,
+    session: AsyncSession,
+    accept: str | None,
+    if_none_match: str | None,
+) -> Response:
+    relative = index_path(page)
+    if accept and _ACCEPTS_MARKDOWN.search(accept):
+        negotiated = _serve_markdown(relative, vary=True, if_none_match=if_none_match)
+        if negotiated is not None:
+            return negotiated
+
+    artifact = settings.generated_dir / f"{relative}.html"
+    if artifact.exists():
+        return _with_cache_header(artifact.read_text(encoding="utf-8"), CachePolicy.LISTING)
+
+    return await _render_index_page(page, site, css, prism, session)
+
+
+async def _render_index_page(
+    page: int, site: SiteConfig, css: str, prism: str, session: AsyncSession
 ) -> HTMLResponse:
+    page_size = site.pagination.page_size
     store = get_store()
-    key = f"index:{page}:{site.pagination.page_size}"
+    key = f"index:{page}:{page_size}"
     cached = store.get(key)
     if cached is not None:
         return _with_cache_header(cached, CachePolicy.LISTING)
 
     service = PostService(session, site, css, prism)
-    items, _ = await service.list_published(page=page, page_size=site.pagination.page_size)
+    items, total = await service.list_published(page=page, page_size=page_size)
     if not items and page > 1:
         raise PostNotFoundError()
-    html = service.render_index([item.model_dump() for item in items])
+    pages = max(1, ceil(total / page_size))
+    html = service.render_index([item.model_dump() for item in items], page=page, pages=pages)
     store.set(key, html)
     return _with_cache_header(html, CachePolicy.LISTING)
 

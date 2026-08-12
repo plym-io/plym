@@ -2,13 +2,15 @@ from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
 
-import aiofiles
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from plym.config.site import SiteConfig
 from plym.instrumentation.tracer import Traced
 from plym.render.urls import path_for_row
 from plym.repository.post_repository import PostRepository
+from plym.service.artifact_writer import write_if_changed
+from plym.service.index_artifact_service import IndexArtifactService
+from plym.service.post_pipeline import PostPipeline
 from plym.service.search_index_service import SearchIndexService
 from plym.settings import settings
 
@@ -105,31 +107,18 @@ class SiteFilesService(Traced):
         return "\n".join(lines) + "\n"
 
     async def write(self) -> None:
-        await _write_if_changed(SITEMAP_FILE, await self.sitemap())
-        await _write_if_changed(LLMS_FILE, await self.llms_txt())
-        await _write_if_changed(ROBOTS_FILE, self.robots_txt())
+        await write_if_changed(_artifact(SITEMAP_FILE), await self.sitemap())
+        await write_if_changed(_artifact(LLMS_FILE), await self.llms_txt())
+        await write_if_changed(_artifact(ROBOTS_FILE), self.robots_txt())
 
 
 def _artifact(name: str) -> Path:
     return settings.generated_dir / name
 
 
-async def _write_if_changed(name: str, body: str | None) -> None:
-    target = _artifact(name)
-    if body is None:
-        target.unlink(missing_ok=True)
-        return
-    # Whatever watches .generated/ purges what it sees change, so rewriting identical
-    # bytes on every publish would fan out purges for files that did not move.
-    if target.exists() and target.read_text(encoding="utf-8") == body:
-        return
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(f"{target.suffix}.tmp")
-    async with aiofiles.open(tmp, "w", encoding="utf-8") as f:
-        await f.write(body)
-    tmp.replace(target)
-
-
-async def refresh_site_artifacts(session: AsyncSession, site: SiteConfig) -> None:
+async def refresh_site_artifacts(
+    session: AsyncSession, site: SiteConfig, pipeline: PostPipeline
+) -> None:
+    await IndexArtifactService(session, site, pipeline).write()
     await SiteFilesService(session, site).write()
     await SearchIndexService(session, site).refresh()
