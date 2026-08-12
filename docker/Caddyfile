@@ -86,16 +86,6 @@
 	handle_path {$PLYM_BLOG_PREFIX}/* {
 		root * /srv/storage/.generated
 
-		@mdfile {
-			path *.md
-			file {path}
-		}
-		handle @mdfile {
-			header Content-Type "text/markdown; charset=utf-8"
-			header Cache-Control "public, max-age=300"
-			file_server
-		}
-
 		@md {
 			header_regexp Accept (?i)(^|,)\s*text/markdown\s*(;[^,]*)?($|,)
 			file {path}.md

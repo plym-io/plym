@@ -1,3 +1,4 @@
+import hashlib
 import re
 
 from fastapi import APIRouter, Depends, Header, Query
@@ -54,35 +55,55 @@ def _not_found() -> Response:
     raise PostNotFoundError()
 
 
-def _serve_markdown(path: str, site: SiteConfig, vary: bool) -> Response | None:
+def _etag(content: str) -> str:
+    return f'"{hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]}"'
+
+
+def _matches_etag(if_none_match: str | None, etag: str) -> bool:
+    if not if_none_match:
+        return False
+    candidates = [candidate.strip() for candidate in if_none_match.split(",")]
+    return "*" in candidates or any(c.removeprefix("W/") == etag for c in candidates)
+
+
+def _serve_markdown(
+    path: str, site: SiteConfig, *, vary: bool, if_none_match: str | None
+) -> Response | None:
     source = settings.generated_dir / f"{path}.md"
     if not source.exists():
         return None
-    response = PlainTextResponse(
-        content=source.read_text(encoding="utf-8"),
-        media_type="text/markdown; charset=utf-8",
-    )
+    content = source.read_text(encoding="utf-8")
+    etag = _etag(content)
+    headers = {"ETag": etag}
     header = site.http_cache.header_for_post()
     if header:
-        response.headers["Cache-Control"] = header
+        headers["Cache-Control"] = header
     if vary:
-        response.headers["Vary"] = "Accept"
-    return response
+        headers["Vary"] = "Accept"
+    if _matches_etag(if_none_match, etag):
+        return Response(status_code=304, headers=headers)
+    return PlainTextResponse(
+        content=content,
+        media_type="text/markdown; charset=utf-8",
+        headers=headers,
+    )
 
 
 def _split_markdown_suffix(slug: str) -> tuple[str, bool]:
     return (slug[:-3], True) if slug.endswith(".md") else (slug, False)
 
 
-def _serve_markdown_url(path: str, site: SiteConfig) -> Response:
+def _serve_markdown_url(path: str, site: SiteConfig, if_none_match: str | None) -> Response:
     if not site.md_urls.enabled:
         raise PostNotFoundError()
-    return _serve_markdown(path, site, vary=False) or _not_found()
+    return _serve_markdown(path, site, vary=False, if_none_match=if_none_match) or _not_found()
 
 
-def _serve_generated(path: str, site: SiteConfig, accept: str | None) -> Response:
+def _serve_generated(
+    path: str, site: SiteConfig, accept: str | None, if_none_match: str | None
+) -> Response:
     if accept and _ACCEPTS_MARKDOWN.search(accept):
-        response = _serve_markdown(path, site, vary=True)
+        response = _serve_markdown(path, site, vary=True, if_none_match=if_none_match)
         if response is not None:
             return response
     target = settings.generated_dir / f"{path}.html"
@@ -97,14 +118,15 @@ async def serve_post(
     slug: str,
     site: SiteConfig = Depends(site_config),
     accept: str | None = Header(default=None),
+    if_none_match: str | None = Header(default=None),
 ) -> Response:
     slug, as_markdown = _split_markdown_suffix(slug)
     if not is_path_segment(slug):
         raise PostNotFoundError()
     path = post_path(None, slug)
     if as_markdown:
-        return _serve_markdown_url(path, site)
-    return _serve_generated(path, site, accept)
+        return _serve_markdown_url(path, site, if_none_match)
+    return _serve_generated(path, site, accept, if_none_match)
 
 
 @posts_router.get("/{category}/{slug}", response_class=HTMLResponse)
@@ -113,11 +135,12 @@ async def serve_categorised_post(
     slug: str,
     site: SiteConfig = Depends(site_config),
     accept: str | None = Header(default=None),
+    if_none_match: str | None = Header(default=None),
 ) -> Response:
     slug, as_markdown = _split_markdown_suffix(slug)
     if not (is_path_segment(category) and is_path_segment(slug)):
         raise PostNotFoundError()
     path = post_path(category, slug)
     if as_markdown:
-        return _serve_markdown_url(path, site)
-    return _serve_generated(path, site, accept)
+        return _serve_markdown_url(path, site, if_none_match)
+    return _serve_generated(path, site, accept, if_none_match)
