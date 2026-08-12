@@ -1,3 +1,4 @@
+import logging
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -9,6 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from plym.config.merge import deep_merge
 from plym.render.urls import RESERVED_SEGMENTS
 from plym.settings import settings
+
+log = logging.getLogger("plym.config")
 
 _PREFIX_PATTERN = re.compile(r"(?:/[a-z0-9]+(?:-[a-z0-9]+)*)+")
 
@@ -89,25 +92,6 @@ class InjectConfig(BaseModel):
         return value
 
 
-class HttpCacheConfig(BaseModel):
-    enabled: bool = True
-    max_age: int = 300
-    index_max_age: int = 60
-    public: bool = True
-
-    def header_for_post(self) -> str | None:
-        if not self.enabled:
-            return None
-        scope = "public" if self.public else "private"
-        return f"{scope}, max-age={self.max_age}"
-
-    def header_for_index(self) -> str | None:
-        if not self.enabled:
-            return None
-        scope = "public" if self.public else "private"
-        return f"{scope}, max-age={self.index_max_age}"
-
-
 class SiteConfig(BaseModel):
     name: str = "Plym"
     description: str | None = None
@@ -163,7 +147,6 @@ class SiteConfig(BaseModel):
     reading: ReadingConfig = Field(default_factory=ReadingConfig)
     backup: BackupConfig = Field(default_factory=BackupConfig)
     media: MediaConfig = Field(default_factory=MediaConfig)
-    http_cache: HttpCacheConfig = Field(default_factory=HttpCacheConfig)
     robots: RobotsConfig = Field(default_factory=RobotsConfig)
     md_urls: MdUrlsConfig = Field(default_factory=MdUrlsConfig)
     inject: InjectConfig = Field(default_factory=InjectConfig)
@@ -215,6 +198,26 @@ def _load_template_overrides(template_name: str) -> dict[str, Any]:
     return raw
 
 
+REMOVED_KEYS = {
+    "http_cache": (
+        "cache lifetimes are now one policy per resource, decided where the bytes are served: "
+        "docker/Caddyfile for artifacts, plym.render.cache_policy for the app's own routes. "
+        "The values match the old defaults, so deleting the block changes nothing"
+    ),
+}
+
+
+def _warn_about_unknown_keys(raw: dict[str, Any], source: Path) -> None:
+    for key in raw:
+        if key in SiteConfig.model_fields:
+            continue
+        removed = REMOVED_KEYS.get(key)
+        if removed:
+            log.warning("%s: %r is no longer used — %s.", source, key, removed)
+        else:
+            log.warning("%s: %r is not a plym setting and is ignored.", source, key)
+
+
 @lru_cache(maxsize=1)
 def load_site_config(path: Path | None = None) -> SiteConfig:
     target = path or settings.config_path
@@ -222,6 +225,7 @@ def load_site_config(path: Path | None = None) -> SiteConfig:
     if target.exists():
         with target.open("r", encoding="utf-8") as f:
             raw_operator = yaml.safe_load(f) or {}
+    _warn_about_unknown_keys(raw_operator, target)
 
     template_name = raw_operator.get("template", "default")
     raw_template = _load_template_overrides(template_name)

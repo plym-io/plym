@@ -7,6 +7,7 @@ from plym.api.state import site_config
 from plym.config.site import SiteConfig
 from plym.exceptions.search import SearchIndexNotBuiltError
 from plym.models.search_index import SearchIndexBuildResult
+from plym.render.cache_policy import CachePolicy
 from plym.service.search_index_service import SearchIndexService
 
 index_json_router = APIRouter(tags=["Search"], include_in_schema=False)
@@ -18,11 +19,11 @@ async def serve_search_index(site: SiteConfig = Depends(site_config)) -> Respons
     content = SearchIndexService.read()
     if content is None:
         raise SearchIndexNotBuiltError()
-    headers = {}
-    header = site.http_cache.header_for_index()
-    if header:
-        headers["Cache-Control"] = header
-    return Response(content=content, media_type="application/json", headers=headers)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Cache-Control": CachePolicy.LISTING.value},
+    )
 
 
 @api_router.post("", response_model=SearchIndexBuildResult, dependencies=[Depends(require_editor)])

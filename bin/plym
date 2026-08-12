@@ -129,7 +129,7 @@ Usage:
                                        latest plym image. Destructive: deletes all posts, regenerates
                                        the admin password. Asks for confirmation unless --yes.
   plym reload                          Restart the api to apply config.yaml. No re-render; use for
-                                       runtime-only changes (http_cache, pagination, robots, media).
+                                       runtime-only changes (pagination, robots, media, md_urls).
   plym rebuild                         Restart the api and re-render every published post. Use when a
                                        change affects rendered HTML (template, prism, reading, logo).
 

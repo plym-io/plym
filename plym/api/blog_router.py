@@ -10,6 +10,7 @@ from plym.api.state import bundled_css, prism_js, site_config
 from plym.config.site import SiteConfig
 from plym.exceptions.posts import PostNotFoundError
 from plym.render.cache import get_store
+from plym.render.cache_policy import CachePolicy
 from plym.render.urls import is_path_segment, post_path
 from plym.service.post_service import PostService
 from plym.settings import settings
@@ -20,10 +21,9 @@ posts_router = APIRouter(tags=["Blog"], include_in_schema=False)
 _ACCEPTS_MARKDOWN = re.compile(r"(^|,)\s*text/markdown\s*(;[^,]*)?($|,)", re.IGNORECASE)
 
 
-def _with_cache_header(html: str, header: str | None) -> HTMLResponse:
+def _with_cache_header(html: str, policy: CachePolicy) -> HTMLResponse:
     response = HTMLResponse(content=html)
-    if header:
-        response.headers["Cache-Control"] = header
+    response.headers["Cache-Control"] = policy.value
     response.headers["Vary"] = "Accept"
     return response
 
@@ -40,7 +40,7 @@ async def serve_index(
     key = f"index:{page}:{site.pagination.page_size}"
     cached = store.get(key)
     if cached is not None:
-        return _with_cache_header(cached, site.http_cache.header_for_index())
+        return _with_cache_header(cached, CachePolicy.LISTING)
 
     service = PostService(session, site, css, prism)
     items, _ = await service.list_published(page=page, page_size=site.pagination.page_size)
@@ -48,7 +48,7 @@ async def serve_index(
         raise PostNotFoundError()
     html = service.render_index([item.model_dump() for item in items])
     store.set(key, html)
-    return _with_cache_header(html, site.http_cache.header_for_index())
+    return _with_cache_header(html, CachePolicy.LISTING)
 
 
 def _not_found() -> Response:
@@ -66,18 +66,13 @@ def _matches_etag(if_none_match: str | None, etag: str) -> bool:
     return "*" in candidates or any(c.removeprefix("W/") == etag for c in candidates)
 
 
-def _serve_markdown(
-    path: str, site: SiteConfig, *, vary: bool, if_none_match: str | None
-) -> Response | None:
+def _serve_markdown(path: str, *, vary: bool, if_none_match: str | None) -> Response | None:
     source = settings.generated_dir / f"{path}.md"
     if not source.exists():
         return None
     content = source.read_text(encoding="utf-8")
     etag = _etag(content)
-    headers = {"ETag": etag}
-    header = site.http_cache.header_for_post()
-    if header:
-        headers["Cache-Control"] = header
+    headers = {"ETag": etag, "Cache-Control": CachePolicy.MARKDOWN.value}
     if vary:
         headers["Vary"] = "Accept"
     if _matches_etag(if_none_match, etag):
@@ -96,21 +91,19 @@ def _split_markdown_suffix(slug: str) -> tuple[str, bool]:
 def _serve_markdown_url(path: str, site: SiteConfig, if_none_match: str | None) -> Response:
     if not site.md_urls.enabled:
         raise PostNotFoundError()
-    return _serve_markdown(path, site, vary=False, if_none_match=if_none_match) or _not_found()
+    return _serve_markdown(path, vary=False, if_none_match=if_none_match) or _not_found()
 
 
-def _serve_generated(
-    path: str, site: SiteConfig, accept: str | None, if_none_match: str | None
-) -> Response:
+def _serve_generated(path: str, accept: str | None, if_none_match: str | None) -> Response:
     if accept and _ACCEPTS_MARKDOWN.search(accept):
-        response = _serve_markdown(path, site, vary=True, if_none_match=if_none_match)
+        response = _serve_markdown(path, vary=True, if_none_match=if_none_match)
         if response is not None:
             return response
     target = settings.generated_dir / f"{path}.html"
     if not target.exists():
         raise PostNotFoundError()
     content = target.read_text(encoding="utf-8")
-    return _with_cache_header(content, site.http_cache.header_for_post())
+    return _with_cache_header(content, CachePolicy.PAGE)
 
 
 @posts_router.get("/{slug}", response_class=HTMLResponse)
@@ -126,7 +119,7 @@ async def serve_post(
     path = post_path(None, slug)
     if as_markdown:
         return _serve_markdown_url(path, site, if_none_match)
-    return _serve_generated(path, site, accept, if_none_match)
+    return _serve_generated(path, accept, if_none_match)
 
 
 @posts_router.get("/{category}/{slug}", response_class=HTMLResponse)
@@ -143,4 +136,4 @@ async def serve_categorised_post(
     path = post_path(category, slug)
     if as_markdown:
         return _serve_markdown_url(path, site, if_none_match)
-    return _serve_generated(path, site, accept, if_none_match)
+    return _serve_generated(path, accept, if_none_match)
