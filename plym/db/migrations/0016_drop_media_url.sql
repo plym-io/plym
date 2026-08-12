@@ -1,0 +1,1 @@
+ALTER TABLE public.pl_media DROP COLUMN IF EXISTS url;

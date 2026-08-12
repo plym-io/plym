@@ -1,5 +1,6 @@
 import io
 import uuid
+from typing import Any
 
 import aiofiles
 from PIL import Image, UnidentifiedImageError
@@ -28,13 +29,8 @@ class MediaService(Traced):
         self._media = MediaRepository(session)
         self._posts = PostRepository(session)
 
-    def _public_url(self, filename: str) -> str:
-        base = (
-            self._site.media.location.rstrip("/")
-            if self._site.media.location
-            else f"{self._site.blog_prefix}/media"
-        )
-        return f"{base}/{filename}"
+    def _to_item(self, row: dict[str, Any]) -> MediaItem:
+        return MediaItem.model_validate({**row, "url": self._site.media_url(row["filename"])})
 
     async def upload(self, *, uploader_id: int, original_name: str, data: bytes) -> MediaItem:
         if len(data) > settings.upload_max_bytes:
@@ -71,23 +67,22 @@ class MediaService(Traced):
             size_bytes=len(webp_bytes),
             width=width,
             height=height,
-            url=self._public_url(filename),
             uploader_id=uploader_id,
         )
         await self._session.commit()
-        return MediaItem.model_validate(row)
+        return self._to_item(row)
 
     async def list_paginated(self, *, page: int, page_size: int) -> tuple[list[MediaItem], int]:
         offset = max(0, (page - 1) * page_size)
         rows = await self._media.list_paginated(limit=page_size, offset=offset)
         total = int(rows[0]["total"]) if rows else await self._media.count()
-        return [MediaItem.model_validate(r) for r in rows], total
+        return [self._to_item(r) for r in rows], total
 
     async def get(self, media_id: int) -> MediaItem:
         row = await self._media.get_by_id(media_id)
         if not row:
             raise MediaNotFoundError()
-        return MediaItem.model_validate(row)
+        return self._to_item(row)
 
     async def delete(self, *, media_id: int, requester_id: int, is_admin: bool = False) -> None:
         row = await self._media.get_by_id(media_id)
