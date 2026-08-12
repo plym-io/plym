@@ -1,4 +1,5 @@
 import logging
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -138,6 +139,21 @@ app.include_router(seo_router)
 app.include_router(index_json_router)
 
 
+SHELL_CACHE_CONTROL = "no-store"
+HASHED_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
+UNHASHED_ASSET_CACHE_CONTROL = "no-cache"
+
+_HASHED_ASSET_DIR = "assets/"
+_HASHED_ASSET_NAME = re.compile(r"-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$")
+
+
+def admin_cache_control(path: str) -> str:
+    relative = path.lstrip("/")
+    if relative.startswith(_HASHED_ASSET_DIR) and _HASHED_ASSET_NAME.search(relative):
+        return HASHED_ASSET_CACHE_CONTROL
+    return UNHASHED_ASSET_CACHE_CONTROL
+
+
 class AdminSPA(StaticFiles):
     def __init__(self, directory: str, base_href: str) -> None:
         super().__init__(directory=directory)
@@ -155,8 +171,11 @@ class AdminSPA(StaticFiles):
                     raise
             else:
                 if response.status_code != 404:
+                    response.headers["Cache-Control"] = admin_cache_control(path)
                     return response
-        return HTMLResponse(self._index)
+        shell = HTMLResponse(self._index)
+        shell.headers["Cache-Control"] = SHELL_CACHE_CONTROL
+        return shell
 
 
 _prefix = _site_config.blog_prefix
