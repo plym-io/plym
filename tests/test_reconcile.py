@@ -44,7 +44,7 @@ async def test_reconcile_rerenders_stale_and_missing_files() -> None:
     )
     pipeline = PostPipeline(app.state.site, app.state.css, app.state.prism_js)
     try:
-        await reconcile_generated_files(pipeline)
+        await reconcile_generated_files(pipeline, app.state.site)
         for slug in (stale_slug, missing_slug):
             html = (settings.generated_dir / f"{slug}.html").read_text(encoding="utf-8")
             assert read_render_stamp(html) == pipeline.render_stamp
@@ -92,10 +92,10 @@ async def test_reconcile_skips_current_files() -> None:
     pipeline = PostPipeline(app.state.site, app.state.css, app.state.prism_js)
     target = settings.generated_dir / f"{slug}.html"
     try:
-        await reconcile_generated_files(pipeline)
+        await reconcile_generated_files(pipeline, app.state.site)
         marker = target.read_text(encoding="utf-8") + "<!-- untouched -->"
         target.write_text(marker, encoding="utf-8")
-        await reconcile_generated_files(pipeline)
+        await reconcile_generated_files(pipeline, app.state.site)
         assert target.read_text(encoding="utf-8") == marker
     finally:
         async with factory() as session:

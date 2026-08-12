@@ -2,17 +2,19 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from plym.config.site import SiteConfig
 from plym.db.session import get_session_factory
 from plym.render.stamp import read_render_stamp
 from plym.render.urls import path_for_row
 from plym.repository.post_repository import PostRepository
 from plym.service.post_pipeline import PostPipeline
+from plym.service.site_files_service import SiteFilesService
 from plym.settings import settings
 
 log = logging.getLogger("plym.reconcile")
 
 
-async def reconcile_generated_files(pipeline: PostPipeline) -> None:
+async def reconcile_generated_files(pipeline: PostPipeline, site: SiteConfig) -> None:
     if not settings.generated_dir.exists():
         return
     _remove_tmp_files()
@@ -21,6 +23,8 @@ async def reconcile_generated_files(pipeline: PostPipeline) -> None:
     except Exception as exc:
         log.warning("reconcile skipped — could not read published slugs: %s", exc)
         return
+
+    await _refresh_site_files(site)
 
     removed = _remove_orphans(published)
     if removed:
@@ -42,9 +46,17 @@ async def reconcile_generated_files(pipeline: PostPipeline) -> None:
 
 
 def _remove_tmp_files() -> None:
-    for pattern in ("*.html.tmp", "*.md.tmp"):
-        for path in settings.generated_dir.rglob(pattern):
-            path.unlink()
+    for path in settings.generated_dir.rglob("*.tmp"):
+        path.unlink()
+
+
+async def _refresh_site_files(site: SiteConfig) -> None:
+    factory = get_session_factory()
+    try:
+        async with factory() as session:
+            await SiteFilesService(session, site).write()
+    except Exception:
+        log.exception("could not refresh the site files")
 
 
 async def _published_paths() -> set[str]:

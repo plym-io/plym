@@ -78,7 +78,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         site.logo = artifacts.assets.logo.web_path
 
     log.info("startup: reconciling generated files")
-    await reconcile_generated_files(PostPipeline(site, artifacts.css, artifacts.prism_js))
+    await reconcile_generated_files(PostPipeline(site, artifacts.css, artifacts.prism_js), site)
 
     app.state.site = site
     app.state.settings = settings

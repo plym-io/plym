@@ -86,6 +86,46 @@
 	handle_path {$PLYM_BLOG_PREFIX}/* {
 		root * /srv/storage/.generated
 
+		@sitemap {
+			path /sitemap.xml
+			file {path}
+		}
+		handle @sitemap {
+			header Content-Type "application/xml"
+			header Cache-Control "public, max-age=60"
+			file_server
+		}
+
+		@llms {
+			path /llms.txt
+			file {path}
+		}
+		handle @llms {
+			header Content-Type "text/markdown; charset=utf-8"
+			header Cache-Control "public, max-age=60"
+			file_server
+		}
+
+		@robots {
+			path /robots.txt
+			file {path}
+		}
+		handle @robots {
+			header Content-Type "text/plain; charset=utf-8"
+			header Cache-Control "public, max-age=60"
+			file_server
+		}
+
+		@searchindex {
+			path /index.json
+			file {path}
+		}
+		handle @searchindex {
+			header Content-Type "application/json"
+			header Cache-Control "public, max-age=60"
+			file_server
+		}
+
 		@md {
 			header_regexp Accept (?i)(^|,)\s*text/markdown\s*(;[^,]*)?($|,)
 			file {path}.md

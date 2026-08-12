@@ -74,8 +74,8 @@ async def test_llms_txt_lists_the_homepage(client: httpx.AsyncClient) -> None:
 
 
 def test_llms_body_omits_posts_heading_without_entries() -> None:
-    from plym.api.seo_router import _llms_body
     from plym.config.site import SiteConfig
+    from plym.service.site_files_service import _llms_body
 
     site = SiteConfig(name="Plym", description="A CMS", blog_home="plym.local")
     body = _llms_body(site, site.public_blog_url(), [])

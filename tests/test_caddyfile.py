@@ -16,6 +16,10 @@ CADDY_POLICIES = {
     "/webfonts/*": CachePolicy.ASSET,
     "/static/*": CachePolicy.ASSET,
     "@found": CachePolicy.MEDIA,
+    "@sitemap": CachePolicy.LISTING,
+    "@llms": CachePolicy.LISTING,
+    "@robots": CachePolicy.LISTING,
+    "@searchindex": CachePolicy.LISTING,
 }
 
 _NAMED_MATCHER = re.compile(r"^\s*(@[\w.-]+)\s+\{\s*$", re.MULTILINE)
