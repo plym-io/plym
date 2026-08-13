@@ -150,15 +150,19 @@ SHELL_CACHE_CONTROL = "no-store"
 HASHED_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 UNHASHED_ASSET_CACHE_CONTROL = "no-cache"
 
-_HASHED_ASSET_DIR = "assets/"
+_BUILD_ASSET_DIR = "assets/"
 _HASHED_ASSET_NAME = re.compile(r"-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$")
 
 
 def admin_cache_control(path: str) -> str:
     relative = path.lstrip("/")
-    if relative.startswith(_HASHED_ASSET_DIR) and _HASHED_ASSET_NAME.search(relative):
+    if relative.startswith(_BUILD_ASSET_DIR) and _HASHED_ASSET_NAME.search(relative):
         return HASHED_ASSET_CACHE_CONTROL
     return UNHASHED_ASSET_CACHE_CONTROL
+
+
+def is_build_asset(path: str) -> bool:
+    return path.lstrip("/").startswith(_BUILD_ASSET_DIR)
 
 
 class AdminSPA(StaticFiles):
@@ -171,18 +175,24 @@ class AdminSPA(StaticFiles):
 
     async def get_response(self, path: str, scope: Scope) -> Response:
         if path not in ("", ".", "index.html"):
-            try:
-                response = await super().get_response(path, scope)
-            except StarletteHTTPException as exc:
-                if exc.status_code != 404:
-                    raise
-            else:
-                if response.status_code != 404:
-                    response.headers["Cache-Control"] = admin_cache_control(path)
-                    return response
+            asset = await self._asset(path, scope)
+            if asset is not None:
+                asset.headers["Cache-Control"] = admin_cache_control(path)
+                return asset
+            if is_build_asset(path):
+                raise StarletteHTTPException(status_code=404)
         shell = HTMLResponse(self._index)
         shell.headers["Cache-Control"] = SHELL_CACHE_CONTROL
         return shell
+
+    async def _asset(self, path: str, scope: Scope) -> Response | None:
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            return None
+        return None if response.status_code == 404 else response
 
 
 _prefix = _site_config.blog_prefix

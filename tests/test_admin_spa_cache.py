@@ -66,6 +66,34 @@ async def test_unhashed_assets_revalidate(admin_build: Path) -> None:
     assert response.headers["cache-control"] == UNHASHED_ASSET_CACHE_CONTROL
 
 
+@pytest.mark.asyncio
+async def test_a_superseded_bundle_is_a_404_not_the_shell(admin_build: Path) -> None:
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    from plym.main import AdminSPA
+
+    spa = AdminSPA(str(admin_build), "/plym-admin")
+
+    for path in ("assets/index-GONE1234.js", "assets/style-GONE1234.css"):
+        with pytest.raises(StarletteHTTPException) as raised:
+            await spa.get_response(path, _scope(f"/{path}"))
+        assert raised.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_a_client_route_that_looks_like_a_file_still_gets_the_shell(
+    admin_build: Path,
+) -> None:
+    from plym.main import SHELL_CACHE_CONTROL, AdminSPA
+
+    spa = AdminSPA(str(admin_build), "/plym-admin")
+
+    for path in ("posts/hello.md", "settings/site.json"):
+        response = await spa.get_response(path, _scope(f"/{path}"))
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == SHELL_CACHE_CONTROL
+
+
 def test_only_hashed_files_under_assets_are_treated_as_immutable() -> None:
     from plym.main import (
         HASHED_ASSET_CACHE_CONTROL,
