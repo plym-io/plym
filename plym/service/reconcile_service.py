@@ -2,8 +2,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from plym.config.site import SiteConfig
 from plym.db.session import get_session_factory
+from plym.instrumentation.tracer import Traced
+from plym.models.refresh import RefreshReport
 from plym.render.stamp import read_render_stamp
 from plym.render.urls import is_index_path, path_for_row
 from plym.repository.post_repository import PostRepository
@@ -13,67 +17,94 @@ from plym.settings import settings
 
 log = logging.getLogger("plym.reconcile")
 
+_SLUG_CHUNK = 1000
+_RENDER_CHUNK = 200
+
+
+class ReconcileService(Traced):
+    def __init__(self, session: AsyncSession, site: SiteConfig, pipeline: PostPipeline) -> None:
+        self._session = session
+        self._site = site
+        self._pipeline = pipeline
+        self._posts = PostRepository(session)
+
+    async def run(self, *, force: bool = False) -> RefreshReport:
+        _remove_tmp_files()
+        published = await self._published_paths()
+        removed = _remove_orphans(published)
+        stale = published if force else _stale_paths(published, self._pipeline.render_stamp)
+        rendered = await self._rerender(stale)
+        await refresh_site_artifacts(self._session, self._site, self._pipeline)
+        return RefreshReport(
+            published=len(published),
+            stale=len(stale),
+            rendered=rendered,
+            failed=len(stale) - rendered,
+            removed=removed,
+        )
+
+    async def _published_paths(self) -> set[str]:
+        paths: set[str] = set()
+        after = 0
+        while True:
+            chunk = await self._posts.list_published_slugs_after(after=after, limit=_SLUG_CHUNK)
+            if not chunk:
+                return paths
+            paths.update(path_for_row(row) for row in chunk)
+            after = chunk[-1]["id"]
+            if len(chunk) < _SLUG_CHUNK:
+                return paths
+
+    async def _rerender(self, stale: set[str]) -> int:
+        if not stale:
+            return 0
+        rendered = 0
+        after = 0
+        while True:
+            chunk = await self._posts.list_published_full_after(after=after, limit=_RENDER_CHUNK)
+            if not chunk:
+                return rendered
+            for row in chunk:
+                if path_for_row(row) in stale and await self._rerender_one(row):
+                    rendered += 1
+            after = chunk[-1]["id"]
+            if len(chunk) < _RENDER_CHUNK:
+                return rendered
+
+    async def _rerender_one(self, row: dict[str, Any]) -> bool:
+        try:
+            await self._pipeline.render_row(row)
+            return True
+        except Exception:
+            log.exception("failed to re-render %s", row["slug"])
+            return False
+
 
 async def reconcile_generated_files(pipeline: PostPipeline, site: SiteConfig) -> None:
-    if not settings.generated_dir.exists():
-        return
-    _remove_tmp_files()
+    factory = get_session_factory()
     try:
-        published = await _published_paths()
-    except Exception as exc:
-        log.warning("reconcile skipped — could not read published slugs: %s", exc)
-        return
-
-    await _refresh_artifacts(pipeline, site)
-
-    removed = _remove_orphans(published)
-    if removed:
-        log.warning("reconciled .generated/: removed %d orphan file(s)", removed)
-
-    stale = _stale_paths(published, pipeline.render_stamp)
-    if not stale:
-        return
-    log.warning("reconciled .generated/: %d stale or missing file(s), re-rendering", len(stale))
-    try:
-        rendered = await _rerender(pipeline, stale)
+        async with factory() as session:
+            report = await ReconcileService(session, site, pipeline).run()
     except Exception:
-        log.exception("re-render sweep failed")
+        log.exception("startup reconcile of .generated/ failed")
         return
-    if rendered < len(stale):
-        log.error("re-rendered %d/%d stale post(s) — inspect failures above", rendered, len(stale))
+    if report.removed:
+        log.warning("reconciled .generated/: removed %d orphan file(s)", report.removed)
+    if not report.stale:
+        return
+    if report.failed:
+        log.error(
+            "re-rendered %d/%d stale post(s) — inspect failures above",
+            report.rendered,
+            report.stale,
+        )
     else:
-        log.warning("re-rendered %d stale post(s)", rendered)
+        log.warning("re-rendered %d stale post(s)", report.rendered)
 
 
 def _remove_tmp_files() -> None:
     for path in settings.generated_dir.rglob("*.tmp"):
         path.unlink()
-
-
-async def _refresh_artifacts(pipeline: PostPipeline, site: SiteConfig) -> None:
-    factory = get_session_factory()
-    try:
-        async with factory() as session:
-            await refresh_site_artifacts(session, site, pipeline)
-    except Exception:
-        log.exception("could not refresh the index and site file artifacts")
-
-
-async def _published_paths() -> set[str]:
-    paths: set[str] = set()
-    factory = get_session_factory()
-    async with factory() as session:
-        posts = PostRepository(session)
-        after = 0
-        while True:
-            chunk = await posts.list_published_slugs_after(after=after, limit=1000)
-            if not chunk:
-                break
-            paths.update(path_for_row(row) for row in chunk)
-            after = chunk[-1]["id"]
-            if len(chunk) < 1000:
-                break
-    return paths
 
 
 def _relative_path(path: Path) -> str:
@@ -113,31 +144,3 @@ def _stale_paths(published: set[str], current_stamp: str) -> set[str]:
         ):
             stale.add(relative)
     return stale
-
-
-async def _rerender(pipeline: PostPipeline, stale: set[str]) -> int:
-    rendered = 0
-    factory = get_session_factory()
-    async with factory() as session:
-        posts = PostRepository(session)
-        after = 0
-        while True:
-            chunk = await posts.list_published_full_after(after=after, limit=200)
-            if not chunk:
-                break
-            for row in chunk:
-                if path_for_row(row) in stale and await _rerender_one(pipeline, row):
-                    rendered += 1
-            after = chunk[-1]["id"]
-            if len(chunk) < 200:
-                break
-    return rendered
-
-
-async def _rerender_one(pipeline: PostPipeline, row: dict[str, Any]) -> bool:
-    try:
-        await pipeline.render_row(row)
-        return True
-    except Exception:
-        log.exception("failed to re-render %s", row["slug"])
-        return False

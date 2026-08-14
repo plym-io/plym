@@ -629,3 +629,72 @@ async def test_publish_date_cleared_with_null(
         assert r.json()["published_at"] is not None
     finally:
         await client.delete(f"/api/posts/{post_id}", headers=auth_headers)
+
+
+async def _publish(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], slug: str, title: str
+) -> int:
+    r = await client.post(
+        "/api/posts",
+        json={"title": title, "slug": slug, "content": "# body"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    post_id = int(r.json()["id"])
+    r = await client.patch(
+        f"/api/posts/{post_id}", json={"status": "published"}, headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    return post_id
+
+
+@pytest.mark.asyncio
+async def test_refresh_all_rerenders_every_published_post(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], unique_slug: str
+) -> None:
+    slugs = [f"{unique_slug}-a", f"{unique_slug}-b"]
+    post_ids: list[int] = []
+    try:
+        for slug in slugs:
+            post_ids.append(await _publish(client, auth_headers, slug, slug))
+
+        r = await client.post(
+            "/api/posts/refresh-all", params={"force": "true"}, headers=auth_headers
+        )
+        assert r.status_code == 200, r.text
+        report = r.json()
+        assert report["published"] >= len(slugs)
+        assert report["stale"] == report["published"]
+        assert report["rendered"] == report["stale"]
+        assert report["failed"] == 0
+
+        for slug in slugs:
+            served = await client.get(f"/{slug}")
+            assert served.status_code == 200
+            assert slug in served.text
+    finally:
+        for post_id in post_ids:
+            await client.delete(f"/api/posts/{post_id}", headers=auth_headers)
+
+
+@pytest.mark.asyncio
+async def test_refresh_all_restores_a_deleted_artifact_without_force(
+    client: httpx.AsyncClient, auth_headers: dict[str, str], unique_slug: str
+) -> None:
+    if TEST_MODE != "inprocess":
+        pytest.skip("needs direct access to the generated dir to remove an artifact")
+    from plym.settings import settings
+
+    post_id = await _publish(client, auth_headers, unique_slug, "rebuildable")
+    try:
+        rendered = settings.generated_dir / f"{unique_slug}.html"
+        assert rendered.exists()
+        rendered.unlink()
+
+        r = await client.post("/api/posts/refresh-all", headers=auth_headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["stale"] >= 1
+        assert r.json()["failed"] == 0
+        assert rendered.exists()
+    finally:
+        await client.delete(f"/api/posts/{post_id}", headers=auth_headers)

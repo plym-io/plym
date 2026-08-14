@@ -12,6 +12,7 @@ from plym.models.category import Category
 from plym.models.common import PostStatus
 from plym.models.faq import Faq
 from plym.models.post import Post, PostCreate, PostListItem, PostUpdate
+from plym.models.refresh import RefreshReport
 from plym.models.tag import Tag
 from plym.models.user import UserPublic
 from plym.render.urls import RESERVED_SEGMENTS, path_for_row
@@ -21,6 +22,7 @@ from plym.repository.post_repository import PostRepository
 from plym.repository.tag_repository import TagRepository
 from plym.service.post_listing import PostListing
 from plym.service.post_pipeline import PostPipeline
+from plym.service.reconcile_service import ReconcileService
 from plym.service.site_files_service import refresh_site_artifacts
 
 
@@ -224,6 +226,9 @@ class PostService(Traced):
         await self._session.commit()
         self._pipeline.invalidate_index()
         return await self.get(post_id)
+
+    async def refresh_all(self, *, force: bool) -> RefreshReport:
+        return await ReconcileService(self._session, self._site, self._pipeline).run(force=force)
 
     async def delete(self, post_id: int) -> None:
         post = await self.get(post_id)

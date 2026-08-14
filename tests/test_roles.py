@@ -187,3 +187,13 @@ async def test_editor_can_create_and_delete_post(
     post_id = created.json()["id"]
     deleted = await client.delete(f"/api/posts/{post_id}", headers=editor["headers"])
     assert deleted.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_reader_cannot_refresh_every_post(
+    client: httpx.AsyncClient, user_factory: Callable[..., Awaitable[dict[str, Any]]]
+) -> None:
+    reader = await user_factory(role="reader")
+    r = await client.post("/api/posts/refresh-all", headers=reader["headers"])
+    assert r.status_code == 403
+    assert r.json()["detail"]["code"] == "auth.insufficient_role"
