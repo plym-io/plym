@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     db_name: str = "plym"
     db_user: str = "plym"
     db_password: str = "plym"
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = -1
+    db_pgbouncer: bool = False
 
     superuser_email: str = "admin@plym.local"
     superuser_password: str = "changeme"
