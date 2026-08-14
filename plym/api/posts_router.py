@@ -22,6 +22,7 @@ from plym.models.post import (
     PreviewRequest,
     PreviewResponse,
 )
+from plym.models.refresh import RefreshReport
 from plym.service.post_service import PostService
 
 router = APIRouter(prefix="/api/posts", tags=["Posts"])
@@ -104,6 +105,14 @@ async def update_post(
 @router.post("/{post_id}/refresh", response_model=Post, dependencies=[Depends(require_editor)])
 async def refresh_post(post_id: int, service: PostService = Depends(_service)) -> Post:
     return await service.refresh(post_id)
+
+
+@router.post("/refresh-all", response_model=RefreshReport, dependencies=[Depends(require_editor)])
+async def refresh_all_posts(
+    force: bool = Query(False, description="Re-render every published post, not only stale ones"),
+    service: PostService = Depends(_service),
+) -> RefreshReport:
+    return await service.refresh_all(force=force)
 
 
 @router.delete("/{post_id}", status_code=204, dependencies=[Depends(require_editor)])
