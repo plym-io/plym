@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from plym.config.site import SiteConfig
 from plym.instrumentation.tracer import Traced
 from plym.models.search_index import SearchDocument, SearchIndex
+from plym.render.excerpt import resolve_excerpt
 from plym.render.markdown_renderer import MarkdownRenderer
 from plym.render.plain_text import extract_text
 from plym.render.urls import path_for_row
@@ -61,7 +62,7 @@ class SearchIndexService(Traced):
             slug=row["slug"],
             url=f"{base}/{path_for_row(row)}",
             title=row["title"],
-            excerpt=row.get("excerpt"),
+            excerpt=resolve_excerpt(row.get("excerpt"), row["content"]),
             category=row.get("category_slug"),
             tags=[tag["name"] for tag in row["tags"]],
             author=row["display_name"],

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from plym.config.site import SiteConfig
 from plym.instrumentation.tracer import Traced
+from plym.render.excerpt import resolve_excerpt
 from plym.render.urls import path_for_row
 from plym.repository.post_repository import PostRepository
 from plym.service.artifact_writer import write_if_changed
@@ -32,8 +33,9 @@ def _markdown_text(value: str) -> str:
 
 def _llms_entry(base: str, row: dict[str, Any]) -> str:
     entry = f"- [{_markdown_text(row['title'])}]({base}/{path_for_row(row)})"
-    if row.get("excerpt"):
-        entry = f"{entry}: {_markdown_text(row['excerpt'])}"
+    excerpt = resolve_excerpt(row.get("excerpt"), row["content"])
+    if excerpt:
+        entry = f"{entry}: {_markdown_text(excerpt)}"
     return entry
 
 
