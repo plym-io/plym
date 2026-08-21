@@ -7,6 +7,7 @@ from slugify import slugify
 
 from plym.config.site import SiteConfig
 from plym.render.cache import get_store
+from plym.render.excerpt import resolve_excerpt
 from plym.render.html_assembler import HtmlAssembler
 from plym.render.index_markdown import render_index_markdown
 from plym.render.llms import llms_directive, llms_txt_url
@@ -120,6 +121,7 @@ class PostPipeline:
         *,
         slug: str,
         title: str,
+        content: str,
         content_html: str,
         excerpt: str | None,
         cover: str | None,
@@ -135,6 +137,7 @@ class PostPipeline:
     ) -> dict[str, Any]:
         path = post_path(category["slug"] if category else None, slug)
         canonical = canonical_url or f"{self._site.public_blog_url()}/{path}"
+        excerpt = resolve_excerpt(excerpt, content)
         if cover:
             cover = self._site.absolute_url(cover)
         return {
@@ -191,6 +194,7 @@ class PostPipeline:
         context = self._build_post_context(
             slug=slug,
             title=title,
+            content=content,
             content_html=content_html,
             excerpt=excerpt,
             cover=cover,
@@ -307,6 +311,7 @@ class PostPipeline:
         context = self._build_post_context(
             slug="preview",
             title=title,
+            content=content,
             content_html=content_html,
             excerpt=excerpt,
             cover=cover,

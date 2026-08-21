@@ -8,6 +8,7 @@ from plym.models.common import PostStatus
 from plym.models.post import PostListItem
 from plym.models.tag import Tag
 from plym.models.user import UserPublic
+from plym.render.excerpt import resolve_excerpt
 from plym.render.urls import path_for_row
 from plym.repository.post_repository import PostRepository
 from plym.repository.tag_repository import TagRepository
@@ -54,7 +55,10 @@ class PostListing(Traced):
         offset = max(0, (page - 1) * page_size)
         rows = await self._posts.list_published(limit=page_size, offset=offset)
         total = int(rows[0]["total"]) if rows else await self._posts.count_published()
-        return await self.with_tags(rows), total
+        served = [
+            {**row, "excerpt": resolve_excerpt(row.get("excerpt"), row["content"])} for row in rows
+        ]
+        return await self.with_tags(served), total
 
     async def count_published(self) -> int:
         return await self._posts.count_published()

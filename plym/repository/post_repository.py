@@ -192,7 +192,7 @@ class PostRepository(Traced):
             text(
                 f"""
                 SELECT p.id, p.slug, p.title, p.status, p.reading_time, p.excerpt,
-                       p.cover, p.canonical_url, p.weight, p.category_id,
+                       p.content, p.cover, p.canonical_url, p.weight, p.category_id,
                        p.published_at, p.created_at, p.updated_at,
                        u.id AS author_id, u.display_name, u.avatar_url,
                        COALESCE(u.links, '[]'::jsonb) AS links,
@@ -331,7 +331,7 @@ class PostRepository(Traced):
         result = await self._session.execute(
             text(
                 """
-                SELECT p.id, p.slug, p.title, p.excerpt, c.slug AS category_slug
+                SELECT p.id, p.slug, p.title, p.excerpt, p.content, c.slug AS category_slug
                 FROM public.pl_posts p
                 LEFT JOIN public.pl_categories c ON c.id = p.category_id
                 WHERE p.status = 'published' AND p.id > :after
