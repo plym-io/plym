@@ -1,0 +1,39 @@
+name: Plym
+# One line about the blog. Used as the index page's meta description.
+description:
+website: plym.local
+blog_home: plym.local
+blog_prefix: /
+language: en
+template: default
+
+prism:
+  enabled: true
+  languages: python
+
+logo: https://plym.io/assets/logo.svg
+favicon: https://plym.io/assets/favicon.ico
+
+robots:
+  serve: true
+
+# Serve the markdown twin at an explicit .md URL (/hello.md). Accept: text/markdown
+# negotiation on the canonical URL is always on, whatever this is set to.
+md_urls:
+  enabled: false
+
+inject:
+  head: ""
+  body: ""
+
+pagination:
+  page_size: 10
+
+reading:
+  words_per_minute: 200
+
+backup:
+  frequency: 7
+
+media:
+  location:

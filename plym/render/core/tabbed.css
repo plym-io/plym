@@ -1,0 +1,62 @@
+.plym-content .tabbed-set {
+  position: relative;
+  margin: 2em 0;
+}
+
+.plym-content .tabbed-set > input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+}
+
+.plym-content .tabbed-labels {
+  display: flex;
+  gap: 1.2em;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-primary) 15%, transparent);
+}
+
+.plym-content .tabbed-labels::-webkit-scrollbar { display: none; }
+
+.plym-content .tabbed-labels > label {
+  flex: 0 0 auto;
+  margin-bottom: -1px;
+  padding: 0.5em 0;
+  border-bottom: 2px solid transparent;
+  font-family: var(--font-heading), system-ui, sans-serif;
+  font-size: 0.85em;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-primary) 55%, transparent);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.plym-content .tabbed-set > input:focus-visible ~ .tabbed-labels {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+.plym-content .tabbed-block { display: none; }
+.plym-content .tabbed-block > :last-child { margin-bottom: 0; }
+
+.plym-content .tabbed-set > input:nth-of-type(1):checked ~ .tabbed-labels > :nth-child(1),
+.plym-content .tabbed-set > input:nth-of-type(2):checked ~ .tabbed-labels > :nth-child(2),
+.plym-content .tabbed-set > input:nth-of-type(3):checked ~ .tabbed-labels > :nth-child(3),
+.plym-content .tabbed-set > input:nth-of-type(4):checked ~ .tabbed-labels > :nth-child(4),
+.plym-content .tabbed-set > input:nth-of-type(5):checked ~ .tabbed-labels > :nth-child(5),
+.plym-content .tabbed-set > input:nth-of-type(6):checked ~ .tabbed-labels > :nth-child(6) {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+.plym-content .tabbed-set > input:nth-of-type(1):checked ~ .tabbed-content > :nth-child(1),
+.plym-content .tabbed-set > input:nth-of-type(2):checked ~ .tabbed-content > :nth-child(2),
+.plym-content .tabbed-set > input:nth-of-type(3):checked ~ .tabbed-content > :nth-child(3),
+.plym-content .tabbed-set > input:nth-of-type(4):checked ~ .tabbed-content > :nth-child(4),
+.plym-content .tabbed-set > input:nth-of-type(5):checked ~ .tabbed-content > :nth-child(5),
+.plym-content .tabbed-set > input:nth-of-type(6):checked ~ .tabbed-content > :nth-child(6) {
+  display: block;
+}

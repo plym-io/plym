@@ -1,0 +1,51 @@
+{% include "_header.html" %}
+
+<main class="plym-index-main">
+  {% if posts %}
+    {% for post in posts %}
+      <article class="plym-card{% if post.cover %} plym-card-illustrated{% endif %}">
+        <div class="plym-card-body">
+          {% if post.category %}
+            <p class="plym-eyebrow">{{ post.category.name }}</p>
+          {% endif %}
+          <h2 class="plym-card-title">
+            <a href="{{ site.blog_prefix }}/{{ post.path }}">{{ post.title }}</a>
+          </h2>
+          {% if post.excerpt %}
+            <p class="plym-card-excerpt">{{ post.excerpt }}</p>
+          {% endif %}
+          <p class="plym-meta plym-card-meta">
+            <span>{{ post.author.display_name }}</span>
+            {% if post.published_at %}
+              <span class="plym-meta-sep" aria-hidden="true">·</span>
+              <time datetime="{{ post.published_at.isoformat() }}">{{ post.published_at.strftime('%b %d, %Y') }}</time>
+            {% endif %}
+            <span class="plym-meta-sep" aria-hidden="true">·</span>
+            <span>{{ post.reading_time }} min read</span>
+          </p>
+        </div>
+        {% if post.cover %}
+          <img class="plym-card-cover" src="{{ post.cover }}" alt="" loading="lazy" decoding="async">
+        {% endif %}
+      </article>
+    {% endfor %}
+  {% else %}
+    <p class="plym-empty">Nothing here yet. The first post is waiting to be written.</p>
+  {% endif %}
+
+  {% if pagination.pages > 1 %}
+    <nav class="plym-pagination" aria-label="Pagination">
+      {% if pagination.prev_url %}
+        <a class="plym-pagination-prev" rel="prev" href="{{ pagination.prev_url }}">Newer</a>
+      {% endif %}
+      <span class="plym-pagination-status">Page {{ pagination.page }} of {{ pagination.pages }}</span>
+      {% if pagination.next_url %}
+        <a class="plym-pagination-next" rel="next" href="{{ pagination.next_url }}">Older</a>
+      {% endif %}
+    </nav>
+  {% endif %}
+
+  {% include "_subscribe.html" %}
+</main>
+
+{% include "_footer.html" %}

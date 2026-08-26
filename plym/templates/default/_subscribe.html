@@ -1,0 +1,72 @@
+<section class="plym-subscribe" aria-labelledby="plym-subscribe-title">
+  <h2 class="plym-subscribe-title" id="plym-subscribe-title">Get new posts by email</h2>
+  <p class="plym-subscribe-note">New writing from {{ site.name }}, straight to your inbox.</p>
+
+  <form class="plym-subscribe-form" id="plym-subscribe-form"
+        data-endpoint="{{ site.blog_prefix }}/api/collect">
+    <label class="plym-visually-hidden" for="plym-subscribe-email">Email address</label>
+    <input class="plym-subscribe-input" id="plym-subscribe-email" type="email" name="email"
+           placeholder="you@example.com" autocomplete="email" spellcheck="false" required>
+    <input class="plym-subscribe-trap" type="text" name="company" tabindex="-1"
+           autocomplete="off" aria-hidden="true">
+    <button class="plym-subscribe-button" type="submit">Subscribe</button>
+  </form>
+
+  <p class="plym-subscribe-status" id="plym-subscribe-status" role="status"></p>
+  <noscript>
+    <p class="plym-subscribe-status is-error">Subscribing needs JavaScript enabled.</p>
+  </noscript>
+</section>
+
+<script>
+  (function () {
+    var form = document.getElementById('plym-subscribe-form');
+    if (!form) return;
+
+    var status = document.getElementById('plym-subscribe-status');
+    var button = form.querySelector('.plym-subscribe-button');
+    var done = "Thanks — you're on the list.";
+
+    function say(message, ok) {
+      status.textContent = message;
+      status.className = 'plym-subscribe-status ' + (ok ? 'is-ok' : 'is-error');
+    }
+
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      var email = form.elements.email.value.trim();
+      if (!email) return;
+      if (form.elements.company.value) {
+        form.reset();
+        say(done, true);
+        return;
+      }
+
+      button.disabled = true;
+      say('Signing you up…', true);
+
+      fetch(form.dataset.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email,
+          form: 'subscribe',
+          source: location.pathname
+        })
+      }).then(function (response) {
+        if (response.status === 201) {
+          form.reset();
+          say(done, true);
+        } else if (response.status === 429) {
+          say('Too many sign-ups from here. Try again in a minute.', false);
+        } else {
+          say('That did not go through. Please try again.', false);
+        }
+      }).catch(function () {
+        say('That did not go through. Please try again.', false);
+      }).then(function () {
+        button.disabled = false;
+      });
+    });
+  })();
+</script>

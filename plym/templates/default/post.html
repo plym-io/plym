@@ -1,0 +1,129 @@
+{% include "_header.html" %}
+
+<div class="plym-progress" aria-hidden="true">
+  <span class="plym-progress-bar" id="plym-progress-bar"></span>
+</div>
+
+{% macro render_toc(items) %}
+  <ol class="plym-toc-list">
+    {% for item in items %}
+      <li>
+        <a href="#{{ item.id }}">{{ item.name | safe }}</a>
+        {% if item.children %}{{ render_toc(item.children) }}{% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+{% endmacro %}
+
+<div class="plym-post-layout">
+
+  <aside class="plym-toc-col">
+    {% if post.toc and post.toc|length > 1 %}
+      <nav class="plym-toc" aria-label="Table of contents">
+        <p class="plym-toc-label">Contents</p>
+        {{ render_toc(post.toc) }}
+      </nav>
+    {% endif %}
+  </aside>
+
+  <article class="plym-article-col">
+
+    {% if post.category %}
+      <p class="plym-eyebrow">{{ post.category.name }}</p>
+    {% endif %}
+
+    <h1 class="plym-article-title">{{ post.title }}</h1>
+
+    <p class="plym-meta plym-article-meta">
+      <span>{{ post.author.display_name }}</span>
+      {% if post.published_at %}
+        <span class="plym-meta-sep" aria-hidden="true">·</span>
+        <time datetime="{{ post.published_at.isoformat() }}">{{ post.published_at.strftime('%B %d, %Y') }}</time>
+      {% endif %}
+      <span class="plym-meta-sep" aria-hidden="true">·</span>
+      <span>{{ post.reading_time }} min read</span>
+    </p>
+
+    {% if post.cover %}
+      <img class="plym-cover" src="{{ post.cover }}" alt="" fetchpriority="high" decoding="async">
+    {% endif %}
+
+    <div class="plym-content">
+      {{ post.content | safe }}
+    </div>
+
+    {% if post.faqs %}
+      <section class="plym-faqs" aria-label="Frequently asked questions">
+        <h2 class="plym-faqs-title">Frequently asked questions</h2>
+        {% for faq in post.faqs %}
+          <details class="plym-faq">
+            <summary class="plym-faq-question">{{ faq.question }}</summary>
+            <div class="plym-faq-answer">{{ faq.answer }}</div>
+          </details>
+        {% endfor %}
+      </section>
+    {% endif %}
+
+    {% if post.tags %}
+      <ul class="plym-tags">
+        {% for tag in post.tags %}<li>#{{ tag.name }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+
+    <div class="plym-author">
+      {% if post.author.avatar_url %}
+        <img class="plym-author-avatar"
+             src="{{ post.author.avatar_url }}"
+             alt=""
+             loading="lazy">
+      {% else %}
+        <div class="plym-author-avatar plym-author-initials" aria-hidden="true">
+          {{ post.author.display_name[0] | upper }}
+        </div>
+      {% endif %}
+      <div class="plym-author-body">
+        <p class="plym-author-kicker">Written by</p>
+        <p class="plym-author-name">{{ post.author.display_name }}</p>
+        {% if post.published_at %}
+          <p class="plym-author-date">
+            Published on
+            <time datetime="{{ post.published_at.isoformat() }}">{{ post.published_at.strftime('%B %d, %Y') }}</time>
+          </p>
+        {% endif %}
+        {% if post.author.links %}
+          <ul class="plym-author-links">
+            {% for link in post.author.links %}
+              <li><a href="{{ link.url }}" rel="me noopener">{{ link.type }}</a></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+    </div>
+
+    {% include "_subscribe.html" %}
+
+  </article>
+
+  <div class="plym-right-col" aria-hidden="true"></div>
+
+</div>
+
+{% include "_footer.html" %}
+
+<script>
+  (function () {
+    var bar = document.getElementById('plym-progress-bar');
+    if (!bar) return;
+
+    function update() {
+      var root = document.documentElement;
+      var scrollable = root.scrollHeight - root.clientHeight;
+      var ratio = scrollable > 0 ? Math.min(1, window.scrollY / scrollable) : 0;
+      bar.style.transform = 'scaleX(' + ratio + ')';
+    }
+
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    update();
+  })();
+</script>

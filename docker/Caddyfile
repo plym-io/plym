@@ -1,0 +1,220 @@
+:80 {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	@docs path /plym-docs*
+	header @docs Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https://fastapi.tiangolo.com; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+
+	# Blog pages carry only the directives plym actually enforces. Fetch directives
+	# cannot protect a page whose administrator injects arbitrary markup — the
+	# inject feature requires 'unsafe-inline', which already concedes script
+	# execution — but they did block every analytics and widget snippet the admin
+	# panel tells people to paste, and everything Cloudflare injects into proxied
+	# pages. What still holds, holds: no plugins, no <base> hijack, no framing, no
+	# form exfiltration.
+	@notdocs not path /plym-docs*
+	header @notdocs Content-Security-Policy "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+
+	# The admin SPA takes no injected markup, so it keeps the full app policy. It
+	# answers on /plym-admin under the blog prefix (bare when the prefix is empty),
+	# next to the backend's own /admin routes. This override holds the only copy of
+	# the admin path list; matcher-scoped header directives are last-write-wins in
+	# file order, so it must stay below @notdocs — moved above, the admin SPA
+	# silently gets the blog policy.
+	@admin path /admin /admin/* /plym-admin /plym-admin/* {$PLYM_BLOG_PREFIX}/plym-admin {$PLYM_BLOG_PREFIX}/plym-admin/*
+	header @admin Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+
+	@backend path /api/* /health /admin /admin/*
+	handle @backend {
+		reverse_proxy api:8000
+	}
+
+	handle /plym-docs* {
+		reverse_proxy api:8000
+	}
+
+	handle /mcp* {
+		reverse_proxy mcp:8000
+	}
+
+	handle_path {$PLYM_BLOG_PREFIX}/api/* {
+		rewrite * /api{path}
+		reverse_proxy api:8000
+	}
+
+	handle_path {$PLYM_BLOG_PREFIX}/webfonts/* {
+		root * /srv/storage/webfonts
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle_path {$PLYM_BLOG_PREFIX}/static/* {
+		root * /srv/storage/static
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle_path {$PLYM_BLOG_PREFIX}/media/* {
+		root * /srv/storage/_uploads
+		@found file {path}
+		handle @found {
+			header Cache-Control "public, max-age=31536000"
+			file_server
+		}
+		handle {
+			rewrite * {$PLYM_BLOG_PREFIX}/media{path}
+			reverse_proxy api:8000
+		}
+	}
+
+	handle /webfonts/* {
+		root * /srv/storage
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle /static/* {
+		root * /srv/storage
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle /media/* {
+		uri replace /media/ /_uploads/
+		root * /srv/storage
+		@found file {path}
+		handle @found {
+			header Cache-Control "public, max-age=31536000"
+			file_server
+		}
+		handle {
+			uri replace /_uploads/ /media/
+			reverse_proxy api:8000
+		}
+	}
+
+	handle_path {$PLYM_BLOG_PREFIX}/* {
+		root * /srv/storage/.generated
+
+		# ?page=N is not a cache key the edge can purge, so the app 308s it onto
+		# /page/N. Caddy must hand the query to the app rather than answer it from
+		# index.html, which ignores the query string and would serve page 1's bytes.
+		@pagedquery {
+			path /
+			query page=*
+		}
+		handle @pagedquery {
+			rewrite * {$PLYM_BLOG_PREFIX}/
+			reverse_proxy api:8000
+		}
+
+		@indexmd {
+			path /
+			header_regexp Accept (?i)(^|,)\s*text/markdown\s*(;[^,]*)?($|,)
+			file /index.md
+		}
+		handle @indexmd {
+			rewrite * /index.md
+			header Content-Type "text/markdown; charset=utf-8"
+			header Cache-Control "public, max-age=300"
+			header Vary "Accept"
+			file_server
+		}
+
+		@index {
+			path /
+			file /index.html
+		}
+		handle @index {
+			rewrite * /index.html
+			header Cache-Control "public, max-age=60"
+			header Vary "Accept"
+			file_server
+		}
+
+		@sitemap {
+			path /sitemap.xml
+			file {path}
+		}
+		handle @sitemap {
+			header Content-Type "application/xml"
+			header Cache-Control "public, max-age=60"
+			file_server
+		}
+
+		@llms {
+			path /llms.txt
+			file {path}
+		}
+		handle @llms {
+			header Content-Type "text/markdown; charset=utf-8"
+			header Cache-Control "public, max-age=60"
+			file_server
+		}
+
+		@robots {
+			path /robots.txt
+			file {path}
+		}
+		handle @robots {
+			header Content-Type "text/plain; charset=utf-8"
+			header Cache-Control "public, max-age=60"
+			file_server
+		}
+
+		@searchindex {
+			path /index.json
+			file {path}
+		}
+		handle @searchindex {
+			header Content-Type "application/json"
+			header Cache-Control "public, max-age=60"
+			file_server
+		}
+
+		@md {
+			header_regexp Accept (?i)(^|,)\s*text/markdown\s*(;[^,]*)?($|,)
+			file {path}.md
+		}
+		handle @md {
+			rewrite * {path}.md
+			header Content-Type "text/markdown; charset=utf-8"
+			header Cache-Control "public, max-age=300"
+			header Vary "Accept"
+			file_server
+		}
+
+		@pagedindex {
+			path /page/*
+			file {path}.html
+		}
+		handle @pagedindex {
+			rewrite * {path}.html
+			header Cache-Control "public, max-age=60"
+			header Vary "Accept"
+			file_server
+		}
+
+		@page file {path}.html
+		handle @page {
+			rewrite * {path}.html
+			header Cache-Control "public, max-age=300, stale-while-revalidate=60"
+			header Vary "Accept"
+			file_server
+		}
+		handle {
+			rewrite * {$PLYM_BLOG_PREFIX}{path}
+			reverse_proxy api:8000
+		}
+	}
+
+	handle {
+		reverse_proxy api:8000
+	}
+}

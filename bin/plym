@@ -1,0 +1,1143 @@
+#!/bin/sh
+set -e
+
+REPO_OWNER="${PLYM_TEMPLATE_REPO_OWNER:-plym-io}"
+REPO_NAME="${PLYM_TEMPLATE_REPO_NAME:-plym-templates}"
+HEALTH_TIMEOUT_SECONDS="${PLYM_HEALTH_TIMEOUT_SECONDS:-60}"
+INSTALL_URL="${PLYM_INSTALL_URL:-https://raw.githubusercontent.com/plym-io/plym/main/install.sh}"
+VERBOSE="${PLYM_VERBOSE:-0}"
+
+PLYM_HOME="${PLYM_CONFIG_HOME:-$HOME/.config/plym}"
+ACTIVE_FILE="$PLYM_HOME/active"
+
+_self="$0"
+[ -L "$_self" ] && _self=$(readlink -f "$_self" 2>/dev/null || python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$_self")
+_LIBDIR=$(CDPATH= cd -- "$(dirname -- "$_self")" 2>/dev/null && pwd)
+_LIB="$_LIBDIR/plym-lib.sh"
+if [ ! -r "$_LIB" ]; then
+    _active=$(cat "${PLYM_CONFIG_HOME:-$HOME/.config/plym}/active" 2>/dev/null) || _active=""
+    for _cand in "${PLYM_DIR:-}/bin/plym-lib.sh" "$_active/bin/plym-lib.sh" "$(pwd)/bin/plym-lib.sh"; do
+        case "$_cand" in /bin/plym-lib.sh) continue ;; esac
+        [ -r "$_cand" ] || continue
+        _LIB="$_cand"
+        [ -w "$_LIBDIR" ] && cp "$_cand" "$_LIBDIR/plym-lib.sh" 2>/dev/null && _LIB="$_LIBDIR/plym-lib.sh"
+        break
+    done
+fi
+if [ -r "$_LIB" ]; then
+    . "$_LIB"
+else
+    printf 'plym: error: plym-lib.sh not found (looked next to %s, in $PLYM_DIR, the active blog, and ./bin)\n' "$_self" >&2
+    printf 'plym: reinstall, or copy it manually: cp <plym-checkout>/bin/plym-lib.sh "%s"/\n' "$_LIBDIR" >&2
+    exit 1
+fi
+
+abspath() {
+    if readlink -f "$1" >/dev/null 2>&1; then
+        readlink -f "$1"
+    else
+        python3 -c "import os,sys;print(os.path.realpath(sys.argv[1]))" "$1"
+    fi
+}
+
+is_plym_dir() {
+    [ -f "$1/docker-compose.yml" ] && grep -q 'io\.plym\.instance' "$1/docker-compose.yml" 2>/dev/null
+}
+
+instance_port() {
+    p=$(grep '^PLYM_PORT=' "$1/.env" 2>/dev/null | cut -d= -f2- | head -1)
+    printf '%s' "${p:-9173}"
+}
+
+list_instances() {
+    docker ps -a --filter label=io.plym.instance \
+        --format '{{.Label "com.docker.compose.project.working_dir"}}	{{.Label "com.docker.compose.project"}}	{{.State}}' \
+        2>/dev/null | awk 'NF' | sort -u
+}
+
+find_project_upward() {
+    d=$(pwd)
+    while [ "$d" != "/" ]; do
+        if is_plym_dir "$d"; then printf '%s\n' "$d"; return 0; fi
+        d=$(dirname "$d")
+    done
+    return 1
+}
+
+resolve_project() {
+    RESOLVED=""
+    if [ -n "$OPT_PROJECT" ]; then
+        is_plym_dir "$OPT_PROJECT" || fail "not a plym project: $OPT_PROJECT"
+        RESOLVED=$(abspath "$OPT_PROJECT"); return 0
+    fi
+    if [ -n "$PLYM_DIR" ]; then
+        is_plym_dir "$PLYM_DIR" || fail "PLYM_DIR is not a plym project: $PLYM_DIR"
+        RESOLVED=$(abspath "$PLYM_DIR"); return 0
+    fi
+    if up=$(find_project_upward); then RESOLVED="$up"; return 0; fi
+    if [ -f "$ACTIVE_FILE" ]; then
+        a=$(cat "$ACTIVE_FILE")
+        if is_plym_dir "$a"; then RESOLVED="$a"; return 0; fi
+    fi
+    dirs=$(list_instances | cut -f1 | awk 'NF')
+    count=$(printf '%s\n' "$dirs" | awk 'NF' | wc -l | tr -d ' ')
+    if [ "$count" = "1" ]; then RESOLVED="$dirs"; return 0; fi
+    [ "$count" = "0" ] && fail "no plym instance found; run from inside a blog directory, set PLYM_DIR, or pass -C <dir>"
+    fail "multiple blogs and none active; pick one with 'plym use <name>' (or pass -C <dir>):
+
+$(cmd_list)"
+}
+
+enter_project() {
+    resolve_project
+    cd "$RESOLVED"
+    PROJECT_ROOT="$RESOLVED"
+    PORT=$(instance_port "$RESOLVED")
+    BASE_URL="http://localhost:$PORT"
+    PROJECT_LABEL=$(grep '^COMPOSE_PROJECT_NAME=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    [ -n "$PROJECT_LABEL" ] || PROJECT_LABEL=$(basename "$PROJECT_ROOT")
+    ADMIN_DIR="$PROJECT_ROOT/admin"
+    ADMIN_VERSION=$(grep '^PLYM_ADMIN_VERSION=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    mkdir -p "$ADMIN_DIR"
+}
+
+usage() {
+    cat <<EOF
+Usage:
+  plym list                            Show every blog on this machine. The active one is marked '*'.
+  plym use <name|dir>                  Set the active blog for commands run outside a blog dir.
+  plym set url <url> --<proxy>         Serve the active blog on your own domain through a reverse
+                                       proxy. <url> is a domain, subdomain, or domain/path, e.g.
+                                       blog.flapico.com or flapico.com/blog.
+                                       Proxies: --nginx, --caddy, --traefik.
+  plym unset url                       Remove the reverse proxy config plym created.
+  plym enable mcp                      Start the MCP server at /mcp on the blog's own domain, through
+                                       the reverse proxy the blog already uses.
+  plym enable mcp <url> --<proxy>      Serve MCP on its own hostname through a reverse proxy (same
+                                       proxies as 'set url'), e.g. mcp.your-domain.com. Either way,
+                                       every MCP tool authenticates with the plym email + password.
+  plym disable mcp                     Stop the MCP server and remove any reverse proxy config for it.
+  plym template install <name> [ref]   Switch to a template. 'default' ships in the plym image and
+                                       needs no download; other names use the local copy in
+                                       templates/ if present, else download it. Pass --update to
+                                       force a fresh download. Default ref: main. Refs are a
+                                       branch, tag, or SHA.
+  plym admin update                    Refetch the admin bundle into ./admin and restart the api. If the
+                                       fetch fails the existing admin bundle is kept (never removed).
+  plym update                          Pull the latest plym image from Docker Hub, refresh the project
+                                       files, refetch the admin bundle, reload caddy, and re-render.
+                                       Updates the whole stack.
+  plym reinstall [--yes]               Wipe the stack AND its database volume, then reinstall from the
+                                       latest plym image. Destructive: deletes all posts, regenerates
+                                       the admin password. Asks for confirmation unless --yes.
+  plym reload                          Restart the api to apply config.yaml. No re-render; use for
+                                       runtime-only changes (pagination, robots, media, md_urls).
+  plym rebuild                         Restart the api and re-render every published post. Use when a
+                                       change affects rendered HTML (template, prism, reading, logo).
+
+Global options (accepted before the command, e.g. plym --verbose update):
+  -v, --verbose                       Stream every underlying log live: docker build/compose, the api
+                                      container logs, HTTP requests/responses, and proxy reloads.
+                                      Errors and full tracebacks are shown either way; --verbose adds
+                                      the live stream. Same as PLYM_VERBOSE=1.
+  -C <dir>, --project <dir>           Operate on the blog in <dir> (also PLYM_DIR=<dir>).
+  Otherwise: the current blog dir if you are inside one, else the active blog,
+  else the sole blog if there is only one.
+
+Environment overrides:
+  PLYM_TEMPLATE_REPO_OWNER (default: plym-io)
+  PLYM_TEMPLATE_REPO_NAME  (default: plym-templates)
+  PLYM_HEALTH_TIMEOUT_SECONDS (default: 60)
+  PLYM_VERBOSE=1           Same as --verbose.
+EOF
+}
+
+usage_error() {
+    if [ -n "$1" ]; then
+        printf '%splym: error:%s %s\n' "$RED" "$RESET" "$1" >&2
+    fi
+    usage >&2
+    exit 1
+}
+
+load_creds() {
+    [ -f .env ] || fail "no .env in $PROJECT_ROOT"
+    EMAIL=$(grep '^PLYM_SUPERUSER_EMAIL=' .env | cut -d= -f2- | head -1)
+    PASSWORD=$(grep '^PLYM_SUPERUSER_PASSWORD=' .env | cut -d= -f2- | head -1)
+    [ -n "$EMAIL" ] && [ -n "$PASSWORD" ] || \
+        fail "could not read PLYM_SUPERUSER_EMAIL/PASSWORD from .env"
+}
+
+attempt_login() {
+    http POST "$BASE_URL/api/auth/login" \
+        -H 'Content-Type: application/json' \
+        -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" || return 1
+    TOKEN=$(printf '%s' "$HTTP_BODY" | grep -o '"access_token":"[^"]*"' | sed 's/^"access_token":"//;s/"$//')
+    [ -n "$TOKEN" ]
+}
+
+login() {
+    load_creds
+    retry 5 attempt_login && return 0
+    printf 'login failed for %s after 5 attempts, last response HTTP %s\n' "$EMAIL" "$HTTP_CODE" >&2
+    [ -n "$HTTP_BODY" ] && printf '%s\n' "$HTTP_BODY" >&2
+    printf '\n' >&2
+    dump_service api
+    dump_unhealthy
+    return 1
+}
+
+refresh_all_posts() {
+    login || return 1
+    ids=""
+    page=1
+    while :; do
+        http GET "$BASE_URL/api/posts?include_drafts=true&page=$page&page_size=200" \
+            -H "Authorization: Bearer $TOKEN" || {
+                printf 'could not list posts to re-render (page %s, HTTP %s):\n%s\n' "$page" "$HTTP_CODE" "$HTTP_BODY" >&2
+                return 1
+            }
+        page_ids=$(printf '%s' "$HTTP_BODY" | python3 -c "import sys,json;print(' '.join(str(p['id']) for p in json.load(sys.stdin)['items']))" 2>/dev/null)
+        [ -n "$page_ids" ] || break
+        ids="$ids $page_ids"
+        count=$(printf '%s' "$page_ids" | wc -w | tr -d ' ')
+        [ "$count" -lt 200 ] && break
+        page=$((page + 1))
+    done
+    for id in $ids; do
+        http POST "$BASE_URL/api/posts/$id/refresh" -H "Authorization: Bearer $TOKEN" >/dev/null || {
+            printf 'rendering post %s failed (HTTP %s):\n%s\n' "$id" "$HTTP_CODE" "$HTTP_BODY" >&2
+            return 1
+        }
+    done
+    return 0
+}
+
+mcp_enabled() {
+    case ",$(grep '^COMPOSE_PROFILES=' .env 2>/dev/null | cut -d= -f2- | head -1)," in
+        *",mcp,"*) return 0 ;;
+    esac
+    return 1
+}
+
+restart_api() {
+    docker compose up -d
+    docker compose restart api
+    mcp_enabled && docker compose restart mcp
+    wait_for_health
+}
+
+restart_caddy() {
+    docker compose restart caddy
+    wait_for_health
+}
+
+apply() {
+    _admin=0; _caddy=0; _render=0; ADMIN_RC=0
+    for _f in "$@"; do
+        case "$_f" in
+            --admin)  _admin=1 ;;
+            --caddy)  _caddy=1 ;;
+            --render) _render=1 ;;
+        esac
+    done
+    if [ "$_admin" = 1 ]; then
+        spin "fetching admin bundle $ADMIN_VERSION" fetch_admin "$ADMIN_VERSION" "$ADMIN_DIR" || ADMIN_RC=$?
+        [ "$ADMIN_RC" -eq 1 ] && return 1
+    fi
+    spin "restarting api" restart_api || return 1
+    if [ "$_caddy" = 1 ]; then spin "reloading caddy" restart_caddy || return 1; fi
+    if [ "$_render" = 1 ]; then spin "re-rendering published posts" refresh_all_posts || return 1; fi
+    return 0
+}
+
+warn_prefix_drift() {
+    cfg=$(normalize_prefix "$(grep '^blog_prefix:' config.yaml 2>/dev/null | awk '{print $2}')")
+    cfg="${cfg:-/}"
+    env=$(normalize_prefix "$(grep '^PLYM_BLOG_PREFIX=' .env 2>/dev/null | cut -d= -f2- | head -1)")
+    env="${env:-/}"
+    [ "$cfg" = "$env" ] && return 0
+    warn "blog_prefix drift: config.yaml says '$cfg' but caddy is serving '$env'"
+    warn "routing will not change until both match; run: plym set url <your-url>$cfg"
+}
+
+template_exists_local() {
+    [ -d "templates/$1" ]
+}
+
+templates_overlay_active() {
+    [ -f docker-compose.override.yml ] && grep -q '/app/plym/templates' docker-compose.override.yml
+}
+
+ensure_templates_override() {
+    if [ -f docker-compose.override.yml ]; then
+        templates_overlay_active && return 0
+        fail "docker-compose.override.yml exists but does not mount ./templates; add '- ./templates:/app/plym/templates:ro' under the api service volumes and re-run"
+    fi
+    printf 'services:\n  api:\n    volumes:\n      - ./templates:/app/plym/templates:ro\n' > docker-compose.override.yml
+    say "created docker-compose.override.yml (mounts ./templates over the bundled templates)"
+    [ -n "${COMPOSE_FILE:-}" ] && warn "COMPOSE_FILE is set; add docker-compose.override.yml to it or the templates overlay will not load"
+    return 0
+}
+
+set_active_template() {
+    name="$1"
+    if grep -q '^template:' config.yaml; then
+        sed -i.bak "s|^template: .*|template: $name|" config.yaml
+        rm -f config.yaml.bak
+    else
+        printf "template: %s\n" "$name" >> config.yaml
+    fi
+}
+
+fetch_template_remote() {
+    name="$1"; ref="$2"
+    target="templates/$name"
+    tmp=$(mktemp -d)
+    url="https://codeload.github.com/$REPO_OWNER/$REPO_NAME/tar.gz/$ref"
+    if ! curl -fsSL "$url" \
+        | tar -xz -C "$tmp" --strip-components=2 "$REPO_NAME-$ref/templates/$name" 2>/dev/null \
+        || [ ! -d "$tmp/$name" ]; then
+        rm -rf "$tmp"
+        printf '%splym: error:%s template '"'"'%s'"'"' not found in %s/%s@%s\n' "$RED" "$RESET" "$name" "$REPO_OWNER" "$REPO_NAME" "$ref" >&2
+        return 1
+    fi
+    rm -rf "$target"
+    mv "$tmp/$name" "$target"
+    rm -rf "$tmp"
+}
+
+DOCS_URL="https://plym.io/docs/deployment/reverse-proxy-examples"
+
+PROXY_HEADERS='        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;'
+
+set_env_key() {
+    if grep -q "^$1=" .env 2>/dev/null; then
+        sed -i.bak "s|^$1=.*|$1=$2|" .env && rm -f .env.bak
+    else
+        printf '%s=%s\n' "$1" "$2" >> .env
+    fi
+}
+
+unset_env_key() {
+    sed -i.bak "/^$1=/d" .env && rm -f .env.bak
+}
+
+enable_compose_profile() {
+    _p="$1"
+    _cur=$(grep '^COMPOSE_PROFILES=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    case ",$_cur," in
+        *",$_p,"*) return 0 ;;
+    esac
+    if [ -n "$_cur" ]; then
+        set_env_key COMPOSE_PROFILES "$_cur,$_p"
+    else
+        set_env_key COMPOSE_PROFILES "$_p"
+    fi
+}
+
+disable_compose_profile() {
+    _p="$1"
+    _cur=$(grep '^COMPOSE_PROFILES=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    _new=$(printf '%s' "$_cur" | tr ',' '\n' | grep -vx "$_p" | grep -v '^$' | paste -sd, -)
+    if [ -n "$_new" ]; then
+        set_env_key COMPOSE_PROFILES "$_new"
+    else
+        unset_env_key COMPOSE_PROFILES
+    fi
+}
+
+find_free_port() {
+    _p="$1"
+    while port_in_use "$_p"; do
+        _p=$((_p + 1))
+    done
+    printf '%s' "$_p"
+}
+
+set_config_key() {
+    if grep -q "^$1:" config.yaml 2>/dev/null; then
+        sed -i.bak "s|^$1: .*|$1: $2|" config.yaml && rm -f config.yaml.bak
+    else
+        printf '%s: %s\n' "$1" "$2" >> config.yaml
+    fi
+}
+
+pkg_install() {
+    _q="-qq"; [ "$VERBOSE" = "1" ] && _q=""
+    if command -v apt-get >/dev/null 2>&1; then
+        $SUDO apt-get update $_q && $SUDO apt-get install -y $_q "$@"
+    elif command -v dnf >/dev/null 2>&1; then
+        $SUDO dnf install -y "$@"
+    elif command -v yum >/dev/null 2>&1; then
+        $SUDO yum install -y "$@"
+    elif command -v pacman >/dev/null 2>&1; then
+        $SUDO pacman -S --noconfirm "$@"
+    elif command -v zypper >/dev/null 2>&1; then
+        $SUDO zypper install -y "$@"
+    elif command -v apk >/dev/null 2>&1; then
+        $SUDO apk add "$@"
+    elif command -v brew >/dev/null 2>&1; then
+        brew install "$@"
+    else
+        return 1
+    fi
+}
+
+dns_preflight() {
+    server_ip=$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null) || server_ip=""
+    host_ip=$(python3 -c "import socket,sys;print(socket.gethostbyname(sys.argv[1]))" "$HOST" 2>/dev/null) || host_ip=""
+    if [ -z "$host_ip" ]; then
+        fail "$HOST does not resolve yet. Add an A record for $HOST -> ${server_ip:-this server}, wait for DNS to propagate, then re-run."
+    fi
+    if [ -z "$server_ip" ]; then
+        warn "could not determine this machine's public IP; skipping the DNS check"
+        return 0
+    fi
+    if [ "$host_ip" != "$server_ip" ]; then
+        fail "$HOST resolves to $host_ip but this machine is $server_ip. Point the A record at $server_ip and re-run."
+    fi
+}
+
+proxy_locations() {
+    max_body=$(grep '^PLYM_UPLOAD_MAX_BYTES=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    max_body="${max_body:-10485760}"
+    if [ -n "$URL_PATH" ]; then
+        cat <<EOF
+    location = $URL_PATH {
+        client_max_body_size $max_body;
+        proxy_pass http://127.0.0.1:$PORT;
+$PROXY_HEADERS
+    }
+
+    location $URL_PATH/ {
+        client_max_body_size $max_body;
+        proxy_pass http://127.0.0.1:$PORT;
+$PROXY_HEADERS
+    }
+EOF
+    else
+        cat <<EOF
+    location / {
+        client_max_body_size $max_body;
+        proxy_pass http://127.0.0.1:$PORT;
+$PROXY_HEADERS
+    }
+EOF
+    fi
+}
+
+nginx_vhost() {
+    locations=$(proxy_locations)
+    cat <<EOF
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $HOST;
+
+$locations
+}
+EOF
+}
+
+nginx_has_domain() {
+    $SUDO nginx -T 2>/dev/null \
+        | awk '$1 == "server_name" {for (i = 2; i <= NF; i++) {gsub(";", "", $i); print $i}}' \
+        | grep -Fxq "$HOST"
+}
+
+nginx_conf_target() {
+    if [ -d /etc/nginx/sites-available ]; then
+        NGINX_CONF="/etc/nginx/sites-available/plym-$HOST.conf"
+        NGINX_LINK="/etc/nginx/sites-enabled/plym-$HOST.conf"
+    elif [ -d /etc/nginx/conf.d ]; then
+        NGINX_CONF="/etc/nginx/conf.d/plym-$HOST.conf"
+        NGINX_LINK=""
+    elif command -v brew >/dev/null 2>&1 && [ -d "$(brew --prefix 2>/dev/null)/etc/nginx/servers" ]; then
+        NGINX_CONF="$(brew --prefix)/etc/nginx/servers/plym-$HOST.conf"
+        NGINX_LINK=""
+    else
+        fail "could not find an nginx config directory (looked for sites-available and conf.d)"
+    fi
+}
+
+reload_nginx() {
+    $SUDO nginx -t >/dev/null 2>&1 || return 1
+    $SUDO systemctl reload nginx 2>/dev/null || $SUDO nginx -s reload
+}
+
+certbot_has_nginx_plugin() {
+    $SUDO certbot plugins 2>/dev/null | grep -q '\* nginx'
+}
+
+run_certbot() {
+    EMAIL=$(grep '^PLYM_SUPERUSER_EMAIL=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    case "$EMAIL" in
+        *@*.local|"") email_args="--register-unsafely-without-email" ;;
+        *) email_args="-m $EMAIL" ;;
+    esac
+    $SUDO certbot --nginx -d "$HOST" --non-interactive --agree-tos --redirect $email_args
+}
+
+setup_nginx() {
+    if ! command -v nginx >/dev/null 2>&1; then
+        if port_in_use 80 || port_in_use 443; then
+            fail "nginx isn't installed but something else is listening on 80/443. Free those ports or configure that proxy yourself: $DOCS_URL"
+        fi
+        spin "installing nginx" pkg_install nginx || fail "could not install nginx; install it yourself, then re-run"
+        $SUDO systemctl enable --now nginx >/dev/null 2>&1 || true
+    fi
+    dns_preflight
+    OUR_CONF=""
+    for c in "/etc/nginx/sites-available/plym-$HOST.conf" "/etc/nginx/conf.d/plym-$HOST.conf"; do
+        [ -f "$c" ] && OUR_CONF="$c"
+    done
+    if [ -z "$OUR_CONF" ] && nginx_has_domain; then
+        deleg_dir="/etc/nginx/plym/$HOST"
+        deleg_file="$deleg_dir/$PROJECT_LABEL.conf"
+        $SUDO mkdir -p "$deleg_dir"
+        proxy_locations | $SUDO tee "$deleg_file" >/dev/null
+        if $SUDO nginx -T 2>/dev/null | grep -q "plym/$HOST"; then
+            spin "reloading nginx" reload_nginx || fail "nginx config test failed; run '$SUDO nginx -t' for details"
+            say "route added to your existing $HOST server block"
+        else
+            say "wrote $deleg_file"
+            warn "$HOST is already configured in your nginx, so plym will not touch that server block"
+            say "add this line inside your existing 'server { }' for $HOST, then reload nginx:"
+            printf '    include /etc/nginx/plym/%s/*.conf;\n' "$HOST" >&2
+            say "every future plym blog on $HOST then works with no manual steps"
+        fi
+        return 0
+    fi
+    nginx_conf_target
+    nginx_vhost | $SUDO tee "$NGINX_CONF" >/dev/null
+    [ -n "$NGINX_LINK" ] && $SUDO ln -sf "$NGINX_CONF" "$NGINX_LINK"
+    if ! $SUDO nginx -t >/dev/null 2>&1; then
+        $SUDO rm -f "$NGINX_CONF" "$NGINX_LINK"
+        fail "the generated vhost failed nginx -t; removed it again, your nginx is untouched. run '$SUDO nginx -t' for details"
+    fi
+    spin "reloading nginx" reload_nginx
+    if ! command -v certbot >/dev/null 2>&1; then
+        spin "installing certbot" pkg_install certbot python3-certbot-nginx \
+            || spin "installing certbot" pkg_install certbot certbot-nginx \
+            || spin "installing certbot" pkg_install certbot \
+            || true
+    fi
+    if command -v certbot >/dev/null 2>&1 && ! certbot_has_nginx_plugin; then
+        spin "installing the certbot nginx plugin" pkg_install python3-certbot-nginx \
+            || spin "installing the certbot nginx plugin" pkg_install certbot-nginx \
+            || true
+    fi
+    if command -v certbot >/dev/null 2>&1 && certbot_has_nginx_plugin; then
+        spin "obtaining a TLS certificate for $HOST" run_certbot \
+            || warn "certbot failed; $HOST works over HTTP. fix DNS/firewall and run: $SUDO certbot --nginx -d $HOST"
+    else
+        warn "certbot's nginx plugin is missing; $HOST works over HTTP. for HTTPS install python3-certbot-nginx, then run: $SUDO certbot --nginx -d $HOST"
+    fi
+}
+
+caddy_site() {
+    if [ -n "$URL_PATH" ]; then
+        cat <<EOF
+$HOST {
+	handle $URL_PATH {
+		reverse_proxy 127.0.0.1:$PORT
+	}
+
+	handle $URL_PATH/* {
+		reverse_proxy 127.0.0.1:$PORT
+	}
+}
+EOF
+    else
+        cat <<EOF
+$HOST {
+	reverse_proxy 127.0.0.1:$PORT
+}
+EOF
+    fi
+}
+
+install_caddy() {
+    if command -v apt-get >/dev/null 2>&1; then
+        $SUDO apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https >/dev/null 2>&1 || true
+        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+            | $SUDO gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+            | $SUDO tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
+        _q="-qq"; [ "$VERBOSE" = "1" ] && _q=""
+        $SUDO apt-get update $_q && $SUDO apt-get install -y $_q caddy
+    else
+        pkg_install caddy
+    fi
+}
+
+reload_caddy() {
+    $SUDO systemctl reload caddy 2>/dev/null \
+        || $SUDO caddy reload --config /etc/caddy/Caddyfile
+}
+
+setup_caddy() {
+    if ! command -v caddy >/dev/null 2>&1; then
+        if port_in_use 80 || port_in_use 443; then
+            fail "caddy isn't installed but something else is listening on 80/443. Free those ports or configure that proxy yourself: $DOCS_URL"
+        fi
+        spin "installing caddy" install_caddy || fail "could not install caddy (https://caddyserver.com/docs/install); install it yourself, then re-run"
+        $SUDO systemctl enable --now caddy >/dev/null 2>&1 || true
+    fi
+    dns_preflight
+    main_caddyfile="/etc/caddy/Caddyfile"
+    site_file="/etc/caddy/plym/$HOST.caddy"
+    if [ -f "$main_caddyfile" ] && grep -Eq "^$HOST([[:space:],{]|$)" "$main_caddyfile" 2>/dev/null; then
+        warn "$HOST is already configured in your Caddyfile, so plym will not touch that site block"
+        say "add these routes inside your existing '$HOST { }' block, then reload caddy:"
+        caddy_site | sed '1d;$d' >&2
+        return 0
+    fi
+    $SUDO mkdir -p /etc/caddy/plym
+    caddy_site | $SUDO tee "$site_file" >/dev/null
+    if ! grep -q "import /etc/caddy/plym/\*.caddy" "$main_caddyfile" 2>/dev/null; then
+        printf '\nimport /etc/caddy/plym/*.caddy\n' | $SUDO tee -a "$main_caddyfile" >/dev/null
+    fi
+    if ! $SUDO caddy validate --config "$main_caddyfile" >/dev/null 2>&1; then
+        $SUDO rm -f "$site_file"
+        fail "the generated site failed caddy validate; removed it again, your caddy is untouched"
+    fi
+    spin "reloading caddy" reload_caddy
+    say "caddy fetches and renews the TLS certificate for $HOST automatically"
+}
+
+setup_traefik() {
+    rule="Host(\`$HOST\`)"
+    [ -n "$URL_PATH" ] && rule="Host(\`$HOST\`) && PathPrefix(\`$URL_PATH\`)"
+    cat > docker-compose.traefik.yml <<EOF
+services:
+  caddy:
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.$PROJECT_LABEL.rule: $rule
+      traefik.http.routers.$PROJECT_LABEL.entrypoints: websecure
+      traefik.http.routers.$PROJECT_LABEL.tls.certresolver: letsencrypt
+      traefik.http.services.$PROJECT_LABEL.loadbalancer.server.port: "80"
+EOF
+    say "wrote docker-compose.traefik.yml"
+    say "traefik setups vary; finish these three steps yourself:"
+    {
+        printf '    1. edit entrypoints and certresolver in docker-compose.traefik.yml to match your traefik\n'
+        printf '    2. make sure traefik shares a docker network with this project (or watches the docker socket)\n'
+        printf '    3. run: COMPOSE_FILE=docker-compose.yml:docker-compose.traefik.yml docker compose up -d\n'
+    } >&2
+    say "more: $DOCS_URL"
+}
+
+setup_mcp_traefik() {
+    rule="Host(\`$HOST\`)"
+    [ -n "$URL_PATH" ] && rule="Host(\`$HOST\`) && PathPrefix(\`$URL_PATH\`)"
+    cat > docker-compose.mcp-traefik.yml <<EOF
+services:
+  mcp:
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.$PROJECT_LABEL-mcp.rule: $rule
+      traefik.http.routers.$PROJECT_LABEL-mcp.entrypoints: websecure
+      traefik.http.routers.$PROJECT_LABEL-mcp.tls.certresolver: letsencrypt
+      traefik.http.services.$PROJECT_LABEL-mcp.loadbalancer.server.port: "8000"
+EOF
+    say "wrote docker-compose.mcp-traefik.yml"
+    say "traefik setups vary; finish these yourself:"
+    {
+        printf '    1. edit entrypoints and certresolver to match your traefik\n'
+        printf '    2. make sure traefik shares a docker network with this project\n'
+        printf '    3. add docker-compose.mcp-traefik.yml to COMPOSE_FILE and run docker compose up -d\n'
+    } >&2
+    say "more: $DOCS_URL"
+}
+
+cmd_set_url() {
+    URL_ARG=""
+    PROXY=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --nginx)   PROXY=nginx; shift ;;
+            --caddy)   PROXY=caddy; shift ;;
+            --traefik) PROXY=traefik; shift ;;
+            -*) fail "unknown option: $1" ;;
+            *) URL_ARG="$1"; shift ;;
+        esac
+    done
+    [ -n "$URL_ARG" ] || usage_error "set url needs a <url>"
+    [ -n "$PROXY" ] || fail "pick a reverse proxy: --nginx, --caddy or --traefik.
+  Using a CDN or something else? $DOCS_URL"
+
+    enter_project
+
+    stripped=$(printf '%s' "$URL_ARG" | sed 's|^https\{0,1\}://||; s|/\{1,\}$||')
+    HOST=${stripped%%/*}
+    URL_PATH=""
+    case "$stripped" in
+        */*) URL_PATH="/${stripped#*/}" ;;
+    esac
+    [ -n "$HOST" ] || fail "could not parse a domain from '$URL_ARG'"
+    case "$HOST" in
+        *:*) fail "drop the port; plym serves $HOST through the proxy on 80/443" ;;
+    esac
+
+    PUBLIC_URL="$HOST$URL_PATH"
+    case "$PROXY" in
+        nginx)   plan="install nginx if missing, write an nginx config for $HOST, reload nginx, obtain a TLS certificate via certbot" ;;
+        caddy)   plan="install caddy if missing, write a caddy site for $HOST, reload caddy (TLS is automatic)" ;;
+        traefik) plan="write docker-compose.traefik.yml with router labels for you to finish (no sudo)" ;;
+    esac
+    say "plan: $plan"
+    if tty_available; then
+        printf '%splym:%s serve %s at %s? [Y/n] ' "$ACCENT" "$RESET" "$PROJECT_LABEL" "$PUBLIC_URL" > /dev/tty
+        read -r confirm < /dev/tty || true
+        case "$confirm" in n|N|no|NO) fail "cancelled" ;; esac
+    fi
+
+    SUDO=""
+    if [ "$PROXY" != "traefik" ] && [ "$(id -u)" != 0 ]; then
+        SUDO="sudo"
+        sudo -v || fail "sudo is required to configure $PROXY; for a no-sudo setup see $DOCS_URL"
+    fi
+
+    URL_PATH=$(normalize_prefix "$URL_PATH")
+    set_config_key blog_prefix "${URL_PATH:-/}"
+    set_env_key PLYM_BLOG_PREFIX "$URL_PATH"
+    BLOG_PREFIX="$URL_PATH"
+    set_config_key website "$HOST"
+    set_config_key blog_home "$HOST$BLOG_PREFIX"
+    set_env_key PLYM_PUBLIC_URL "$PUBLIC_URL"
+    set_env_key PLYM_PROXY "$PROXY"
+
+    setup_$PROXY
+
+    apply --render
+
+    say "$PUBLIC_URL now serves $PROJECT_LABEL"
+    say "admin: https://$HOST$BLOG_PREFIX/plym-admin"
+    say "undo with 'plym unset url'"
+}
+
+cmd_unset_url() {
+    enter_project
+    PUBLIC_URL=$(grep '^PLYM_PUBLIC_URL=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    PROXY=$(grep '^PLYM_PROXY=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    [ -n "$PUBLIC_URL" ] || fail "no public URL is set for $PROJECT_LABEL"
+    HOST=${PUBLIC_URL%%/*}
+    SUDO=""
+    [ "$PROXY" != "traefik" ] && [ "$(id -u)" != 0 ] && SUDO="sudo"
+    case "$PROXY" in
+        nginx)
+            $SUDO rm -f "/etc/nginx/sites-available/plym-$HOST.conf" \
+                        "/etc/nginx/sites-enabled/plym-$HOST.conf" \
+                        "/etc/nginx/conf.d/plym-$HOST.conf" \
+                        "/etc/nginx/plym/$HOST/$PROJECT_LABEL.conf"
+            $SUDO rmdir "/etc/nginx/plym/$HOST" 2>/dev/null || true
+            spin "reloading nginx" reload_nginx || true
+            ;;
+        caddy)
+            $SUDO rm -f "/etc/caddy/plym/$HOST.caddy"
+            spin "reloading caddy" reload_caddy || true
+            ;;
+        traefik)
+            rm -f docker-compose.traefik.yml
+            warn "if COMPOSE_FILE references docker-compose.traefik.yml, remove it and run 'docker compose up -d'"
+            ;;
+    esac
+    unset_env_key PLYM_PUBLIC_URL
+    unset_env_key PLYM_PROXY
+    say "$PUBLIC_URL removed from $PROXY; the blog still runs on :$PORT"
+}
+
+cmd_enable_mcp() {
+    URL_ARG=""
+    PROXY=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --nginx)   PROXY=nginx; shift ;;
+            --caddy)   PROXY=caddy; shift ;;
+            --traefik) PROXY=traefik; shift ;;
+            -*) fail "unknown option: $1" ;;
+            *) URL_ARG="$1"; shift ;;
+        esac
+    done
+
+    enter_project
+    BLOG_PORT="$PORT"
+
+    blog_url=$(grep '^PLYM_PUBLIC_URL=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    blog_host=${blog_url%%/*}
+
+    MCP_PORT=$(grep '^PLYM_MCP_PUBLISH_PORT=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    [ -n "$MCP_PORT" ] || MCP_PORT=$(find_free_port 9369)
+
+    HOST=""
+    URL_PATH=""
+    if [ -n "$URL_ARG" ]; then
+        stripped=$(printf '%s' "$URL_ARG" | sed 's|^https\{0,1\}://||; s|/\{1,\}$||')
+        HOST=${stripped%%/*}
+        case "$stripped" in */*) URL_PATH="/${stripped#*/}" ;; esac
+        [ -n "$HOST" ] || fail "could not parse a domain from '$URL_ARG'"
+        case "$HOST" in *:*) fail "drop the port; plym serves $HOST through the proxy on 80/443" ;; esac
+    fi
+
+    if [ -z "$HOST" ] || { [ -n "$blog_host" ] && [ "$HOST" = "$blog_host" ]; }; then
+        if [ -n "$blog_host" ]; then ENDPOINT="https://$blog_host/mcp"; else ENDPOINT="http://localhost:$BLOG_PORT/mcp"; fi
+        set_env_key PLYM_MCP_PUBLISH_PORT "$MCP_PORT"
+        enable_compose_profile mcp
+        spin "starting the MCP server" docker compose up -d mcp || fail "could not start the mcp service"
+        spin "reloading caddy" restart_caddy || fail "caddy did not come back up after the reload"
+        say "$ENDPOINT now serves MCP for $PROJECT_LABEL"
+        say "served through the blog's reverse proxy; no separate domain or certificate"
+        say "every tool authenticates with the plym email and password"
+        say "disable with 'plym disable mcp'"
+        return 0
+    fi
+
+    [ -n "$PROXY" ] || fail "pick a reverse proxy for $HOST: --nginx, --caddy or --traefik.
+  (Omit the URL to serve MCP on your blog's own domain at /mcp instead.) $DOCS_URL"
+
+    PORT="$MCP_PORT"
+    PUBLIC_URL="$HOST$URL_PATH"
+    ENDPOINT="https://$PUBLIC_URL/mcp"
+    case "$PROXY" in
+        nginx)   plan="install nginx if missing, write an nginx config for $HOST, reload nginx, obtain a TLS certificate via certbot" ;;
+        caddy)   plan="install caddy if missing, write a caddy site for $HOST, reload caddy (TLS is automatic)" ;;
+        traefik) plan="write docker-compose.mcp-traefik.yml with router labels for you to finish (no sudo)" ;;
+    esac
+    say "plan: start the MCP server and $plan"
+    if tty_available; then
+        printf '%splym:%s serve MCP for %s at %s? [Y/n] ' "$ACCENT" "$RESET" "$PROJECT_LABEL" "$ENDPOINT" > /dev/tty
+        read -r confirm < /dev/tty || true
+        case "$confirm" in n|N|no|NO) fail "cancelled" ;; esac
+    fi
+
+    SUDO=""
+    if [ "$PROXY" != "traefik" ] && [ "$(id -u)" != 0 ]; then
+        SUDO="sudo"
+        sudo -v || fail "sudo is required to configure $PROXY; for a no-sudo setup see $DOCS_URL"
+    fi
+
+    set_env_key PLYM_MCP_PUBLISH_PORT "$MCP_PORT"
+    set_env_key PLYM_MCP_PUBLIC_URL "$PUBLIC_URL"
+    set_env_key PLYM_MCP_PROXY "$PROXY"
+    enable_compose_profile mcp
+
+    spin "starting the MCP server" docker compose up -d mcp || fail "could not start the mcp service"
+    _t=0
+    while ! port_in_use "$MCP_PORT"; do
+        _t=$((_t + 1)); [ "$_t" -gt 30 ] && break; sleep 1
+    done
+
+    if [ "$PROXY" = "traefik" ]; then
+        setup_mcp_traefik
+    else
+        setup_$PROXY
+    fi
+
+    say "$ENDPOINT now serves MCP for $PROJECT_LABEL"
+    say "every tool authenticates with the plym email and password"
+    say "disable with 'plym disable mcp'"
+}
+
+cmd_disable_mcp() {
+    enter_project
+    PUBLIC_URL=$(grep '^PLYM_MCP_PUBLIC_URL=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    PROXY=$(grep '^PLYM_MCP_PROXY=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    HOST=${PUBLIC_URL%%/*}
+    SUDO=""
+    [ "$PROXY" != "traefik" ] && [ "$(id -u)" != 0 ] && SUDO="sudo"
+    case "$PROXY" in
+        nginx)
+            $SUDO rm -f "/etc/nginx/sites-available/plym-$HOST.conf" \
+                        "/etc/nginx/sites-enabled/plym-$HOST.conf" \
+                        "/etc/nginx/conf.d/plym-$HOST.conf" \
+                        "/etc/nginx/plym/$HOST/$PROJECT_LABEL.conf"
+            $SUDO rmdir "/etc/nginx/plym/$HOST" 2>/dev/null || true
+            spin "reloading nginx" reload_nginx || true
+            ;;
+        caddy)
+            $SUDO rm -f "/etc/caddy/plym/$HOST.caddy"
+            spin "reloading caddy" reload_caddy || true
+            ;;
+        traefik)
+            rm -f docker-compose.mcp-traefik.yml
+            ;;
+    esac
+    spin "stopping the MCP server" docker compose rm -sf mcp || true
+    disable_compose_profile mcp
+    unset_env_key PLYM_MCP_PUBLIC_URL
+    unset_env_key PLYM_MCP_PROXY
+    say "MCP server disabled${PUBLIC_URL:+; $PUBLIC_URL removed from $PROXY}"
+}
+
+cmd_list() {
+    active=""
+    [ -f "$ACTIVE_FILE" ] && active=$(cat "$ACTIVE_FILE")
+    rows=$(list_instances)
+    if [ -z "$rows" ]; then
+        say "no plym blogs found"
+        return
+    fi
+    printf '%s%-2s%-16s %-6s %-9s %s%s\n' "$DIM" "" "NAME" "PORT" "STATUS" "DIR" "$RESET"
+    printf '%s\n' "$rows" | while IFS='	' read -r dir project state; do
+        [ -n "$dir" ] || continue
+        mark="  "
+        field=$(printf '%-16s' "$project")
+        if [ "$dir" = "$active" ]; then
+            mark="* "
+            field="${GREEN}${field}${RESET}"
+        fi
+        printf '%s%s %-6s %-9s %s\n' "$mark" "$field" "$(instance_port "$dir")" "$state" "$dir"
+    done
+}
+
+cmd_use() {
+    target="$1"
+    [ -n "$target" ] || usage_error "use needs a blog name or directory"
+    match=""
+    rows=$(list_instances)
+    if [ -n "$rows" ]; then
+        match=$(printf '%s\n' "$rows" | while IFS='	' read -r dir project state; do
+            [ -n "$dir" ] || continue
+            if [ "$project" = "$target" ] || [ "$dir" = "$target" ] || [ "$(basename "$dir")" = "$target" ]; then
+                printf '%s\n' "$dir"; break
+            fi
+        done)
+    fi
+    if [ -z "$match" ] && is_plym_dir "$target"; then
+        match=$(abspath "$target")
+    fi
+    [ -n "$match" ] || fail "no plym blog matching '$target'; see 'plym list'"
+    mkdir -p "$PLYM_HOME"
+    printf '%s\n' "$match" > "$ACTIVE_FILE"
+    done_ "$(basename "$match") now active (:$(instance_port "$match"))"
+}
+
+cmd_template_install() {
+    enter_project
+    update=""
+    name=""
+    ref=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --update|-u) update=1 ;;
+            -*) fail "unknown option: $1" ;;
+            *)
+                if [ -z "$name" ]; then name="$1"
+                elif [ -z "$ref" ]; then ref="$1"
+                fi ;;
+        esac
+        shift
+    done
+    ref="${ref:-main}"
+    [ -n "$name" ] || usage_error "template install needs a template name"
+
+    say "installing template '$name' into $PROJECT_LABEL"
+    if [ "$name" = "default" ] && ! templates_overlay_active; then
+        set_active_template default
+        apply --render
+        say "template 'default' is live (served from the plym image)"
+        return 0
+    fi
+    if [ ! -f templates/default/template.yaml ]; then
+        image=$(plym_image)
+        spin "seeding the bundled templates from $image" seed_bundled_templates "$image" "$PROJECT_ROOT/templates" \
+            || fail "could not extract the bundled templates from $image"
+    fi
+    if [ -z "$update" ] && template_exists_local "$name"; then
+        say "using the local template (pass --update to fetch the latest from $REPO_OWNER/$REPO_NAME)"
+    else
+        spin "downloading $name from $REPO_OWNER/$REPO_NAME@$ref" fetch_template_remote "$name" "$ref"
+    fi
+    ensure_templates_override
+    set_active_template "$name"
+    apply --render
+    say "template '$name' is live"
+}
+
+cmd_reload() {
+    enter_project
+    say "reloading $PROJECT_LABEL config (:$PORT)"
+    apply
+    warn_prefix_drift
+    done_ "config reloaded"
+}
+
+cmd_rebuild() {
+    enter_project
+    say "rebuilding $PROJECT_LABEL (:$PORT)"
+    apply --render
+    warn_prefix_drift
+    done_ "rebuild complete"
+}
+
+sync_cli() {
+    installed=$(command -v plym 2>/dev/null) || return 0
+    [ -n "$installed" ] && [ "$installed" != "$PROJECT_ROOT/bin/plym" ] || return 0
+    dir=$(dirname "$installed")
+    if [ ! -w "$dir" ]; then
+        warn "the CLI at $installed is not writable; refresh it with: cp $PROJECT_ROOT/bin/plym $PROJECT_ROOT/bin/plym-lib.sh $dir/"
+        return 0
+    fi
+    for f in plym plym-lib.sh; do
+        tmp=$(mktemp "$dir/.plym.XXXXXX" 2>/dev/null) || return 0
+        if cp "$PROJECT_ROOT/bin/$f" "$tmp" && chmod +x "$tmp"; then
+            mv -f "$tmp" "$dir/$f"
+        else
+            rm -f "$tmp"
+        fi
+    done
+}
+
+cmd_admin_update() {
+    enter_project
+    say "refetching the admin bundle (${ADMIN_VERSION:-no PLYM_ADMIN_VERSION set}) for $PROJECT_LABEL"
+    apply --admin || return 1
+    if [ "$ADMIN_RC" -eq 2 ]; then
+        warn "admin not updated; kept the existing bundle (see above)"
+        return 1
+    fi
+    say "admin updated to $ADMIN_VERSION"
+}
+
+cmd_update() {
+    enter_project
+    say "updating $PROJECT_LABEL (:$PORT)"
+    image=$(plym_image)
+    before=$(image_id "$image")
+    spin "pulling $image" docker compose pull api || fail "could not pull $image; see the error above"
+    after=$(image_id "$image")
+    spin "refreshing the project files from the image" extract_dist "$image" "$PROJECT_ROOT" \
+        || fail "could not extract the plym files from $image"
+    active_template=$(sed -n 's/^template:[[:space:]]*//p' config.yaml 2>/dev/null | head -1)
+    if [ "${active_template:-default}" != "default" ]; then
+        ensure_templates_override
+    fi
+    if templates_overlay_active; then
+        spin "refreshing the bundled templates from $image" seed_bundled_templates "$image" "$PROJECT_ROOT/templates" \
+            || fail "could not extract the bundled templates from $image"
+    fi
+    sync_cli
+    apply --admin --caddy --render || fail "update failed; see the error above"
+    warn_prefix_drift
+    [ "$ADMIN_RC" -eq 2 ] && warn "admin bundle was not refreshed; kept the existing one (see above)"
+    if [ -z "$before" ]; then
+        say "installed image $(printf '%s' "$after" | cut -c8-19)"
+    elif [ "$before" = "$after" ]; then
+        say "already on the latest image; project files and renders refreshed"
+    else
+        say "updated image $(printf '%s' "$before" | cut -c8-19) to $(printf '%s' "$after" | cut -c8-19)"
+    fi
+}
+
+cmd_reinstall() {
+    enter_project
+    yes=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --yes|-y) yes=1 ;;
+            -*) fail "unknown option: $1" ;;
+        esac
+        shift
+    done
+
+    name=$(sed -n 's/^name:[[:space:]]*//p' config.yaml 2>/dev/null | head -1)
+    case "$name" in
+        '"'*'"') name=$(printf '%s' "$name" | sed 's/^"//;s/"$//;s/\\\(.\)/\1/g') ;;
+    esac
+    email=$(grep '^PLYM_SUPERUSER_EMAIL=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    port=$(grep '^PLYM_PORT=' .env 2>/dev/null | cut -d= -f2- | head -1)
+    dir=$(basename "$PROJECT_ROOT")
+    parent=$(dirname "$PROJECT_ROOT")
+
+    say "reinstalling $PROJECT_LABEL from the latest plym image"
+    warn "this DELETES the database volume (every post) and regenerates the admin password; back up first if you need the content"
+    if [ -z "$yes" ]; then
+        tty_available || fail "refusing to reinstall non-interactively; re-run with: plym reinstall --yes"
+        printf '%splym:%s type the blog name (%s) to confirm: ' "$ACCENT" "$RESET" "$name" > /dev/tty
+        read -r confirm < /dev/tty || confirm=""
+        [ "$confirm" = "$name" ] || fail "name did not match; aborted"
+    fi
+
+    spin "removing the stack and its volumes" docker compose down -v
+    cd "$parent"
+    rm -rf "$dir"
+    say "reinstalling from $INSTALL_URL"
+    export PLYM_DIR="$dir" PLYM_PORT="$port"
+    exec sh -c 'curl -fsSL "$1" | sh -s "$2" "$3"' _ "$INSTALL_URL" "$name" "$email"
+}
+
+OPT_PROJECT=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -C|--project)
+            [ -n "$2" ] || fail "$1 requires a directory"
+            OPT_PROJECT="$2"; shift 2 ;;
+        -v|--verbose)
+            VERBOSE=1; export PLYM_VERBOSE=1; shift ;;
+        --) shift; break ;;
+        *) break ;;
+    esac
+done
+
+_n=$#; _i=0
+while [ "$_i" -lt "$_n" ]; do
+    _a="$1"; shift
+    case "$_a" in
+        -v|--verbose) VERBOSE=1; export PLYM_VERBOSE=1 ;;
+        *) set -- "$@" "$_a" ;;
+    esac
+    _i=$((_i + 1))
+done
+
+case "${1:-}" in
+    list) cmd_list ;;
+    use) shift; cmd_use "$@" ;;
+    set)
+        case "${2:-}" in
+            url) shift 2; cmd_set_url "$@" ;;
+            *)   usage_error "unknown 'set' target: ${2:-none} (expected: url)" ;;
+        esac
+        ;;
+    unset)
+        case "${2:-}" in
+            url) shift 2; cmd_unset_url ;;
+            *)   usage_error "unknown 'unset' target: ${2:-none} (expected: url)" ;;
+        esac
+        ;;
+    enable)
+        case "${2:-}" in
+            mcp) shift 2; cmd_enable_mcp "$@" ;;
+            *)   usage_error "unknown 'enable' target: ${2:-none} (expected: mcp)" ;;
+        esac
+        ;;
+    disable)
+        case "${2:-}" in
+            mcp) shift 2; cmd_disable_mcp ;;
+            *)   usage_error "unknown 'disable' target: ${2:-none} (expected: mcp)" ;;
+        esac
+        ;;
+    template)
+        case "${2:-}" in
+            install) shift 2; cmd_template_install "$@" ;;
+            *)       usage_error "unknown 'template' target: ${2:-none} (expected: install)" ;;
+        esac
+        ;;
+    admin)
+        case "${2:-}" in
+            update) shift 2; cmd_admin_update ;;
+            *)      usage_error "unknown 'admin' target: ${2:-none} (expected: update)" ;;
+        esac
+        ;;
+    reload) cmd_reload ;;
+    rebuild) cmd_rebuild ;;
+    update) cmd_update ;;
+    reinstall) shift; cmd_reinstall "$@" ;;
+    -h|--help|help|"") usage ;;
+    *) usage_error "unknown command: $1" ;;
+esac

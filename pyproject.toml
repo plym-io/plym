@@ -1,0 +1,99 @@
+[project]
+name = "plym"
+version = "0.1.0"
+description = "Open-source, SEO-optimised, extremely fast CMS"
+requires-python = ">=3.12"
+readme = "README.md"
+license = { text = "MIT" }
+dependencies = [
+    "fastapi>=0.116.1",
+    "starlette>=0.47.2",
+    "fastmcp>=3.2.0",
+    "uvicorn[standard]>=0.32",
+    "pydantic[email]>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy>=2.0",
+    "asyncpg>=0.29",
+    "psycopg[binary]>=3.2",
+    "argon2-cffi>=23.1",
+    "pyjwt>=2.10.1",
+    "python-multipart>=0.0.18",
+    "aiofiles>=24.1",
+    "aiohttp>=3.13.3",
+    "httpx>=0.27",
+    "jinja2>=3.1.6",
+    "markdown>=3.7",
+    "markdownify>=0.13",
+    "nh3>=0.3.6",
+    "pymdown-extensions>=10.21.3",
+    "pillow>=12.3.0",
+    "pyyaml>=6.0",
+    "csscompressor>=0.9",
+    "python-slugify>=8.0",
+    "opentelemetry-sdk>=1.42.1",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.42.1",
+    "opentelemetry-instrumentation-fastapi>=0.63b1",
+    "opentelemetry-instrumentation-sqlalchemy>=0.63b1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["plym"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "SIM"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Body",
+    "fastapi.Depends",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Query",
+    "fastapi.Security",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"plym/render/colon_blocks.py" = ["N802"]
+"plym/render/markdown_renderer.py" = ["N802"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = [
+    "aiofiles",
+    "csscompressor",
+    "markdown",
+    "markdown.blockparser",
+    "markdown.blockprocessors",
+    "markdown.extensions",
+    "markdown.treeprocessors",
+    "markdownify",
+    "yaml",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
