@@ -166,6 +166,35 @@ class RobotsConfig(BaseModel):
     disallow_paths: list[str] = Field(default_factory=lambda: ["/api/"])
 
 
+class NavLink(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1)
+    url: str | None = None
+    children: list["NavLink"] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _leads_somewhere(self) -> "NavLink":
+        if bool(self.url) == bool(self.children):
+            raise ValueError(
+                f"link {self.text!r} must have either a url or a children list, not both "
+                "and not neither: a link that opens a menu cannot also be a destination"
+            )
+        if any(child.children for child in self.children):
+            raise ValueError(
+                f"link {self.text!r} nests more than one level deep — the header renders "
+                "children as a single dropdown and the footer as a single column"
+            )
+        return self
+
+
+class LinksConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    header: list[NavLink] = Field(default_factory=list)
+    footer: list[NavLink] = Field(default_factory=list)
+
+
 class InjectConfig(BaseModel):
     head: str = ""
     body: str = ""
@@ -240,6 +269,7 @@ class SiteConfig(BaseModel):
     robots: RobotsConfig = Field(default_factory=RobotsConfig)
     md_urls: MdUrlsConfig = Field(default_factory=MdUrlsConfig)
     inject: InjectConfig = Field(default_factory=InjectConfig)
+    links: LinksConfig = Field(default_factory=LinksConfig)
     logo: str | None = None
     favicon: str | None = None
 

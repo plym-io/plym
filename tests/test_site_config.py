@@ -257,3 +257,71 @@ def test_operator_weights_override_the_shim(
     )
     assert config.fonts.heading.family == "Fraunces"
     assert config.fonts.heading.weights == {"medium": 500}
+
+
+def test_header_and_footer_links_carry_their_nesting() -> None:
+    config = SiteConfig(
+        name="T",
+        links={
+            "header": [
+                {"text": "Home", "url": "/"},
+                {
+                    "text": "Resources",
+                    "children": [{"text": "Docs", "url": "https://plym.io/docs/"}],
+                },
+            ],
+            "footer": [{"text": "About", "url": "/about"}],
+        },
+    )
+    assert [link.text for link in config.links.header] == ["Home", "Resources"]
+    assert config.links.header[1].children[0].url == "https://plym.io/docs/"
+    assert config.links.footer[0].url == "/about"
+
+
+def test_a_site_that_configures_no_links_gets_empty_menus() -> None:
+    config = SiteConfig(name="T")
+    assert config.links.header == []
+    assert config.links.footer == []
+
+
+def test_a_link_going_nowhere_is_rejected() -> None:
+    with pytest.raises(ValueError, match="either a url or a children list"):
+        SiteConfig(name="T", links={"header": [{"text": "Home"}]})
+
+
+def test_a_link_that_is_both_destination_and_menu_is_rejected() -> None:
+    with pytest.raises(ValueError, match="either a url or a children list"):
+        SiteConfig(
+            name="T",
+            links={
+                "header": [
+                    {
+                        "text": "Docs",
+                        "url": "/docs",
+                        "children": [{"text": "API", "url": "/docs/api"}],
+                    }
+                ]
+            },
+        )
+
+
+def test_links_nested_beyond_one_level_are_rejected() -> None:
+    with pytest.raises(ValueError, match="one level deep"):
+        SiteConfig(
+            name="T",
+            links={
+                "footer": [
+                    {
+                        "text": "Product",
+                        "children": [
+                            {"text": "Docs", "children": [{"text": "API", "url": "/api"}]}
+                        ],
+                    }
+                ]
+            },
+        )
+
+
+def test_an_unknown_key_on_a_link_is_rejected() -> None:
+    with pytest.raises(ValueError, match="target"):
+        SiteConfig(name="T", links={"header": [{"text": "Home", "url": "/", "target": "_blank"}]})

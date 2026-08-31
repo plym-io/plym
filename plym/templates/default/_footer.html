@@ -1,5 +1,26 @@
 <footer class="plym-footer">
-  <span>{{ site.name }}</span>
-  <span class="plym-footer-sep" aria-hidden="true">·</span>
-  <span>Powered by <a href="https://plym.io">plym</a></span>
+  {% if links.footer %}
+    <nav class="plym-footer-nav" aria-label="Footer">
+      {% for link in links.footer %}
+        {% if link.children %}
+          <div class="plym-footer-group">
+            <p class="plym-footer-group-title">{{ link.text }}</p>
+            <ul class="plym-footer-group-list">
+              {% for child in link.children %}
+                <li><a href="{{ child.url }}">{{ child.text }}</a></li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% else %}
+          <a class="plym-footer-link" href="{{ link.url }}">{{ link.text }}</a>
+        {% endif %}
+      {% endfor %}
+    </nav>
+  {% endif %}
+
+  <div class="plym-footer-bar">
+    <span>{{ site.name }}</span>
+    <span class="plym-footer-sep" aria-hidden="true">·</span>
+    <span>Powered by <a href="https://plym.io">plym</a></span>
+  </div>
 </footer>

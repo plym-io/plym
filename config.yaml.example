@@ -40,6 +40,21 @@ inject:
   head: ""
   body: ""
 
+# Header and footer navigation, reachable in templates as links.header and links.footer.
+# A link either has a url or a children list, never both. Children render as a dropdown
+# in the header and as a column in the footer, and nest one level deep.
+# links:
+#   header:
+#     - text: Home
+#       url: /
+#     - text: Resources
+#       children:
+#         - text: Docs
+#           url: https://plym.io/docs/
+#   footer:
+#     - text: About
+#       url: /about
+
 pagination:
   page_size: 10
 

@@ -1,8 +1,61 @@
-<header class="plym-header">
+<header class="plym-header{% if links.header %} plym-header-navigated{% endif %}">
   <a class="plym-brand" href="{{ site.blog_prefix or '/' }}">
     {% if site.logo %}
       <img class="plym-brand-mark" src="{{ site.logo }}" alt="" height="28">
     {% endif %}
     <span class="plym-brand-name">{{ site.name }}</span>
   </a>
+
+  {% if links.header %}
+    <nav class="plym-nav" aria-label="Site">
+      <ul class="plym-nav-list">
+        {% for link in links.header %}
+          <li class="plym-nav-item">
+            {% if link.children %}
+              <details class="plym-nav-group">
+                <summary class="plym-nav-summary">{{ link.text }}</summary>
+                <ul class="plym-nav-menu">
+                  {% for child in link.children %}
+                    <li><a class="plym-nav-link" href="{{ child.url }}">{{ child.text }}</a></li>
+                  {% endfor %}
+                </ul>
+              </details>
+            {% else %}
+              <a class="plym-nav-link" href="{{ link.url }}">{{ link.text }}</a>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </nav>
+  {% endif %}
 </header>
+
+{% if links.header | selectattr("children") | list %}
+<script>
+  (function () {
+    var groups = document.querySelectorAll('.plym-nav-group');
+    if (!groups.length) return;
+
+    function closeAll(except) {
+      Array.prototype.forEach.call(groups, function (group) {
+        if (group !== except) group.open = false;
+      });
+    }
+
+    Array.prototype.forEach.call(groups, function (group) {
+      group.addEventListener('toggle', function () {
+        if (group.open) closeAll(group);
+      });
+    });
+
+    document.addEventListener('click', function (event) {
+      var target = event.target;
+      if (!target.closest || !target.closest('.plym-nav-group')) closeAll(null);
+    });
+
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') closeAll(null);
+    });
+  })();
+</script>
+{% endif %}
