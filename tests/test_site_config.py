@@ -101,3 +101,159 @@ def test_prefix_may_not_claim_a_segment_the_blog_serves(prefix: str) -> None:
 def test_ordinary_prefixes_are_still_accepted(prefix: str) -> None:
     config = SiteConfig(name="T", blog_home=f"https://t.plym.io{prefix}", blog_prefix=prefix)
     assert config.blog_prefix == prefix
+
+
+def _write_template(templates: Path, name: str, body: str) -> None:
+    (templates / name).mkdir(parents=True)
+    (templates / name / "template.yaml").write_text(body, encoding="utf-8")
+
+
+def _load(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str) -> SiteConfig:
+    target = tmp_path / "config.yaml"
+    target.write_text(config, encoding="utf-8")
+    monkeypatch.setattr("plym.config.site.settings.templates_dir", tmp_path / "templates")
+    monkeypatch.setattr("plym.config.site.settings.blog_prefix", "")
+    load_site_config.cache_clear()
+    try:
+        return load_site_config(target)
+    finally:
+        load_site_config.cache_clear()
+
+
+def test_a_bare_family_string_still_configures_a_slot() -> None:
+    config = SiteConfig(name="T", fonts={"heading": "Roboto"})
+    assert config.fonts.heading.family == "Roboto"
+    assert config.fonts.heading.weights == {"bold": 600}
+    assert config.fonts.body.weights == {"regular": 400}
+
+
+def test_the_engine_default_is_one_weight_per_slot() -> None:
+    config = SiteConfig(name="T")
+    assert config.fonts.heading.weights == {"bold": 600}
+    assert config.fonts.body.weights == {"regular": 400}
+
+
+def test_declared_weights_replace_the_default_rather_than_merging() -> None:
+    config = SiteConfig(
+        name="T", fonts={"heading": {"family": "Fraunces", "weights": {"light": 300}}}
+    )
+    assert config.fonts.heading.weights == {"light": 300}
+
+
+def test_every_role_of_the_vocabulary_is_accepted() -> None:
+    weights = {"light": 300, "regular": 400, "medium": 500, "bold": 700, "black": 900}
+    config = SiteConfig(name="T", fonts={"heading": {"family": "Inter", "weights": weights}})
+    assert config.fonts.heading.weights == weights
+
+
+@pytest.mark.parametrize("role", ["base", "strong", "display", "Bold", "semibold"])
+def test_a_role_outside_the_vocabulary_is_rejected(role: str) -> None:
+    with pytest.raises(ValueError):
+        SiteConfig(name="T", fonts={"heading": {"family": "Inter", "weights": {role: 600}}})
+
+
+@pytest.mark.parametrize("weight", [0, 1001, "heavy", None])
+def test_weights_outside_the_css_range_are_rejected(weight: object) -> None:
+    with pytest.raises(ValueError):
+        SiteConfig(name="T", fonts={"heading": {"family": "Inter", "weights": {"bold": weight}}})
+
+
+def test_a_typoed_fonts_key_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        SiteConfig(name="T", fonts={"heading": {"family": "Inter", "wieghts": {"bold": 600}}})
+
+
+def test_a_plus_separated_family_is_normalized_to_spaces() -> None:
+    config = SiteConfig(name="T", fonts={"heading": "Hanken+Grotesk"})
+    assert config.fonts.heading.family == "Hanken Grotesk"
+
+
+@pytest.mark.parametrize("family", ["Inter'; }", "Inter:wght@400;700", ""])
+def test_a_family_that_is_not_a_google_fonts_name_is_rejected(family: str) -> None:
+    with pytest.raises(ValueError):
+        SiteConfig(name="T", fonts={"heading": family})
+
+
+def test_the_packaged_default_template_declares_the_weights_it_renders(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    load_site_config.cache_clear()
+    target = tmp_path / "config.yaml"
+    target.write_text('name: T\nblog_home: "https://t.plym.io"\n', encoding="utf-8")
+    monkeypatch.setattr("plym.config.site.settings.blog_prefix", "")
+    try:
+        config = load_site_config(target)
+    finally:
+        load_site_config.cache_clear()
+    assert config.fonts.heading.weights == {"bold": 600, "black": 900}
+    assert config.fonts.body.weights == {"regular": 400}
+
+
+def test_a_template_declaring_no_weights_keeps_the_pair_plym_shipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_template(tmp_path / "templates", "custom", "fonts:\n  heading: Fraunces\n")
+    config = _load(
+        tmp_path, monkeypatch, 'name: T\nblog_home: "https://t.plym.io"\ntemplate: custom\n'
+    )
+    assert config.fonts.heading.family == "Fraunces"
+    assert config.fonts.heading.weights == {"bold": 600, "black": 900}
+    assert config.fonts.body.weights == {"regular": 400}
+
+
+def test_a_template_with_no_yaml_at_all_keeps_the_pair_plym_shipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "templates" / "bare").mkdir(parents=True)
+    config = _load(
+        tmp_path, monkeypatch, 'name: T\nblog_home: "https://t.plym.io"\ntemplate: bare\n'
+    )
+    assert config.fonts.heading.family == "Inter"
+    assert config.fonts.heading.weights == {"bold": 600, "black": 900}
+    assert config.fonts.body.weights == {"regular": 400}
+
+
+def test_a_template_declaring_weights_gets_exactly_those(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_template(
+        tmp_path / "templates",
+        "custom",
+        "fonts:\n  heading:\n    family: Fraunces\n    weights:\n      medium: 500\n",
+    )
+    config = _load(
+        tmp_path, monkeypatch, 'name: T\nblog_home: "https://t.plym.io"\ntemplate: custom\n'
+    )
+    assert config.fonts.heading.weights == {"medium": 500}
+    assert config.fonts.body.weights == {"regular": 400}
+
+
+def test_an_operator_family_string_keeps_the_template_weights(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_template(
+        tmp_path / "templates",
+        "custom",
+        "fonts:\n  heading:\n    family: Fraunces\n    weights:\n      black: 950\n",
+    )
+    config = _load(
+        tmp_path,
+        monkeypatch,
+        'name: T\nblog_home: "https://t.plym.io"\ntemplate: custom\nfonts:\n  heading: Roboto\n',
+    )
+    assert config.fonts.heading.family == "Roboto"
+    assert config.fonts.heading.weights == {"black": 950}
+
+
+def test_operator_weights_override_the_shim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_template(tmp_path / "templates", "custom", "fonts:\n  heading: Fraunces\n")
+    config = _load(
+        tmp_path,
+        monkeypatch,
+        'name: T\nblog_home: "https://t.plym.io"\ntemplate: custom\n'
+        "fonts:\n  heading:\n    weights:\n      medium: 500\n",
+    )
+    assert config.fonts.heading.family == "Fraunces"
+    assert config.fonts.heading.weights == {"medium": 500}

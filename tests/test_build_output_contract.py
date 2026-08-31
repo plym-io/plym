@@ -25,7 +25,11 @@ IMMUTABLE_NAME = re.compile(r"^[a-z0-9]+-[0-9a-f]{8,}\.[a-z0-9]+$")
 
 WOFF2 = b"wOF2" + b"\x00" * 28
 FONT_URL = "https://fonts.gstatic.com/l/font?kit=UcC73Fwr&skey=c491285d6722e4fa&v=v20"
-FONT_CSS = f"@font-face {{ src: url({FONT_URL}) format('woff2'); }}"
+FONT_CSS = "\n".join(
+    f"@font-face {{ font-family: '{family}'; font-style: normal; font-weight: {weight}; "
+    f"src: url({FONT_URL}) format('woff2'); }}"
+    for family, weight in (("Inter", 600), ("Inter", 900), ("Merriweather", 400))
+)
 
 
 def _image(fmt: str) -> bytes:

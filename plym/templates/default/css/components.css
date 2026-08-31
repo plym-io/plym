@@ -24,7 +24,7 @@
 
 .plym-card-title {
   font-size: 1.75rem;
-  font-weight: 900;
+  font-weight: var(--wght-heading-black);
   letter-spacing: -0.025em;
   line-height: 1.25;
   margin: 0 0 0.75rem;
@@ -57,7 +57,7 @@
 
 .plym-article-title {
   font-size: 2.625rem;
-  font-weight: 900;
+  font-weight: var(--wght-heading-black);
   letter-spacing: -0.03em;
   line-height: 1.13;
   margin: 0 0 1.5rem;
@@ -80,9 +80,9 @@
 }
 
 .plym-toc-label {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 0.68rem;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--plym-ink);
@@ -95,9 +95,9 @@
   list-style: none;
   padding: 0;
   margin: 0;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 0.84rem;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
   line-height: 1.4;
 }
 
@@ -218,8 +218,8 @@
   width: 100%;
   margin: 2.25em 0;
   font-size: 0.9rem;
-  font-family: 'Inter', sans-serif;
-  font-weight: 600;
+  font-family: var(--font-heading), sans-serif;
+  font-weight: var(--wght-heading-bold);
 }
 
 .plym-content th,
@@ -230,7 +230,7 @@
   vertical-align: top;
 }
 .plym-content th {
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
   border-bottom: 2px solid var(--color-accent);
   color: var(--color-primary);
 }
@@ -248,7 +248,7 @@
 .plym-content .admonition.note,
 .plym-content .admonition.important { --plym-admon: var(--plym-ink); }
 
-.plym-content .admonition-title { font-weight: 600; }
+.plym-content .admonition-title { font-weight: var(--wght-heading-bold); }
 
 .plym-content .task-list-item { list-style: none; }
 
@@ -275,9 +275,9 @@
 }
 
 .plym-faq-question {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
   color: var(--color-primary);
   cursor: pointer;
   padding: 1rem 0;
@@ -313,12 +313,12 @@
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
 }
 
 .plym-tags li {
   font-size: 0.68rem;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
   color: var(--plym-ink);
   background: var(--plym-pale);
   padding: 0.35rem 0.9rem;
@@ -353,8 +353,8 @@
   justify-content: center;
   background: var(--color-accent);
   color: #fff;
-  font-family: 'Inter', sans-serif;
-  font-weight: 900;
+  font-family: var(--font-heading), sans-serif;
+  font-weight: var(--wght-heading-black);
   font-size: 1.375rem;
   user-select: none;
 }
@@ -362,9 +362,9 @@
 .plym-author-body { flex: 1; min-width: 0; }
 
 .plym-author-kicker {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 0.65rem;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
   letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--plym-ink);
@@ -372,18 +372,18 @@
 }
 
 .plym-author-name {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 1.05rem;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
   letter-spacing: -0.01em;
   color: var(--color-primary);
   margin: 0 0 0.3rem;
 }
 
 .plym-author-date {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 0.8rem;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
   color: var(--n-muted);
   margin: 0;
 }
@@ -395,9 +395,9 @@
   gap: 0.9rem;
   padding: 0;
   margin: 0.7rem 0 0;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 0.8rem;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
 }
 .plym-author-links a { text-transform: capitalize; }
 
@@ -442,9 +442,9 @@
 .plym-subscribe-input {
   flex: 1 1 15rem;
   min-width: 0;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 0.9375rem;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
   color: var(--color-primary);
   background: #fff;
   border: 1px solid var(--n-border);
@@ -454,9 +454,9 @@
 .plym-subscribe-input::placeholder { color: var(--n-muted); }
 
 .plym-subscribe-button {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 0.9375rem;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
   color: #fff;
   background: var(--color-primary);
   border: 0;
@@ -477,9 +477,9 @@
 }
 
 .plym-subscribe-status {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 0.85rem;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
   min-height: 1.3rem;
   margin: 0.75rem 0 0;
   color: var(--n-muted);
@@ -495,9 +495,9 @@
   margin-top: 3rem;
   padding-top: 1.5rem;
   border-top: 1px solid var(--n-border);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 0.85rem;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
 }
 
 .plym-pagination-status {

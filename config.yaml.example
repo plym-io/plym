@@ -7,6 +7,20 @@ blog_prefix: /
 language: en
 template: default
 
+# Leave this out and the template decides. A slot is either a Google Fonts family
+# name or a family plus the weights to download; the role names are labels for
+# --wght-<slot>-<role>, and only light, regular, medium, bold and black exist.
+# fonts:
+#   heading:
+#     family: Inter
+#     weights:
+#       bold: 600
+#       black: 900
+#   body:
+#     family: Merriweather
+#     weights:
+#       regular: 400
+
 prism:
   enabled: true
   languages: python

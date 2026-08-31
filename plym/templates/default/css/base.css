@@ -27,7 +27,7 @@ html {
 
 body {
   margin: 0;
-  font-family: 'Merriweather', Georgia, 'Times New Roman', serif;
+  font-family: var(--font-body), Georgia, 'Times New Roman', serif;
   font-size: 18px;
   line-height: 1.78;
   color: var(--color-primary);
@@ -38,8 +38,8 @@ body {
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  font-weight: 900;
+  font-family: var(--font-heading), system-ui, -apple-system, sans-serif;
+  font-weight: var(--wght-heading-black);
   line-height: 1.2;
   letter-spacing: -0.022em;
   color: var(--color-primary);
@@ -116,9 +116,9 @@ a:hover { opacity: 0.7; text-decoration-thickness: 2.5px; }
 }
 
 .plym-brand-name {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 1.0625rem;
-  font-weight: 900;
+  font-weight: var(--wght-heading-black);
   letter-spacing: -0.02em;
   color: var(--color-primary);
 }
@@ -131,9 +131,9 @@ a:hover { opacity: 0.7; text-decoration-thickness: 2.5px; }
   gap: 0.6rem;
   border-top: 1px solid var(--n-border);
   padding: 2rem 2rem 2.25rem;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 0.775rem;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
   color: var(--n-muted);
   letter-spacing: 0.03em;
 }
@@ -142,9 +142,9 @@ a:hover { opacity: 0.7; text-decoration-thickness: 2.5px; }
 .plym-footer-sep { color: var(--n-muted); }
 
 .plym-meta {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 0.775rem;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
   color: var(--n-muted);
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -158,9 +158,9 @@ a:hover { opacity: 0.7; text-decoration-thickness: 2.5px; }
 .plym-meta-sep { color: var(--plym-ink); }
 
 .plym-eyebrow {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 0.68rem;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold);
   letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--plym-ink);

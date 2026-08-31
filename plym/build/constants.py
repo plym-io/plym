@@ -1,6 +1,7 @@
 import aiohttp
 
 BASE_URL = "https://fonts.googleapis.com/css2"
+METADATA_URL = "https://fonts.google.com/metadata/fonts/{family}"
 TEXT = (
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
     " !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"

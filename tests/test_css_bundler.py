@@ -207,6 +207,8 @@ def test_core_css_only_depends_on_bundled_variables() -> None:
         "--color-background",
         "--font-heading",
         "--font-body",
+        "--wght-heading-bold",
+        "--wght-body-regular",
     }
     for path in sorted(CORE_CSS_DIR.glob("*.css")):
         source = path.read_text()
@@ -214,3 +216,28 @@ def test_core_css_only_depends_on_bundled_variables() -> None:
         referenced = set(re.findall(r"var\((--[\w-]+)", source))
         unresolved = referenced - guaranteed - declared
         assert not unresolved, f"{path.name} references template-local vars {unresolved}"
+
+
+def test_fonts_vars_emit_one_variable_per_declared_role(bundler: "CssBundler") -> None:
+    css = bundler.build()
+    assert "--font-heading:'Inter'" in css
+    assert "--font-body:'Merriweather'" in css
+    assert "--wght-heading-bold:600" in css
+    assert "--wght-body-regular:400" in css
+
+
+def test_no_bare_slot_variable_is_emitted(bundler: "CssBundler") -> None:
+    css = bundler.build()
+    assert "--wght-heading:" not in css
+    assert "--wght-body:" not in css
+
+
+def test_an_undeclared_role_gets_no_variable(bundler: "CssBundler") -> None:
+    from plym.config.site import SiteConfig
+
+    bundler._site = SiteConfig(
+        name="T", fonts={"heading": {"family": "Inter", "weights": {"black": 950}}}
+    )
+    css = bundler.build()
+    assert "--wght-heading-black:950" in css
+    assert "--wght-heading-bold:" not in css

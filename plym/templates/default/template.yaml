@@ -1,6 +1,13 @@
 fonts:
-  heading: Inter
-  body: Merriweather
+  heading:
+    family: Inter
+    weights:
+      bold: 600
+      black: 900
+  body:
+    family: Merriweather
+    weights:
+      regular: 400
 
 colors:
   primary:    "#1a1a1a"

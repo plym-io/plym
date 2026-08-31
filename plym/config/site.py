@@ -2,7 +2,7 @@ import logging
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -29,9 +29,99 @@ def _url_path(url: str) -> str:
     return f"{slash}{path}".rstrip("/") if slash else ""
 
 
+# Google Fonts family names use only letters, digits and spaces. The names also
+# reach a :root{} declaration and the css2 URL verbatim, so nothing else may pass.
+_FAMILY_PATTERN = re.compile(r"[A-Za-z0-9 ]+")
+
+# Role names are labels, not weights: a template picks the number each one means,
+# so `bold: 600` reads as "this template's bold is 600". The vocabulary is closed,
+# which also caps a slot at five weights.
+WeightRole = Literal["light", "regular", "medium", "bold", "black"]
+
+CssWeight = Annotated[int, Field(ge=1, le=1000)]
+
+DEFAULT_FAMILIES = {"heading": "Inter", "body": "Merriweather"}
+
+DEFAULT_WEIGHTS: dict[str, dict[WeightRole, int]] = {
+    "heading": {"bold": 600},
+    "body": {"regular": 400},
+}
+
+
+def normalize_font_slots(raw: dict[str, Any]) -> dict[str, Any]:
+    fonts = raw.get("fonts")
+    if not isinstance(fonts, dict):
+        return raw
+    slots = {
+        key: {"family": value} if key in DEFAULT_WEIGHTS and isinstance(value, str) else value
+        for key, value in fonts.items()
+    }
+    return {**raw, "fonts": slots}
+
+
+# COMPAT: every template written before weights were configurable hardcodes 600
+# and 900 and reads none of the variables, so the one-weight-per-slot default
+# would restyle all of them. A slot that declares no weights keeps the pair plym
+# has always shipped; a slot that declares any gets exactly those. Drop this at
+# the next major version, once those templates declare their own weights.
+_UNDECLARED_SLOT_WEIGHTS: dict[str, dict[str, int]] = {
+    "heading": {"bold": 600, "black": 900},
+    "body": {"regular": 400},
+}
+
+
+def _keep_weights_of_undeclared_slots(raw: dict[str, Any]) -> dict[str, Any]:
+    fonts = raw.get("fonts", {})
+    if not isinstance(fonts, dict):
+        return raw
+    slots = dict(fonts)
+    for slot_name, weights in _UNDECLARED_SLOT_WEIGHTS.items():
+        slot = slots.get(slot_name, {"family": DEFAULT_FAMILIES[slot_name]})
+        if isinstance(slot, dict) and not slot.get("weights"):
+            slots[slot_name] = {**slot, "weights": dict(weights)}
+    return {**raw, "fonts": slots}
+
+
+class FontSlotConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    family: str
+    weights: dict[WeightRole, CssWeight] = Field(default_factory=dict)
+
+    @field_validator("family")
+    @classmethod
+    def _family_is_a_google_fonts_name(cls, value: str) -> str:
+        # Google's embed URLs spell spaces as +, so operators paste that form.
+        value = " ".join(value.replace("+", " ").split())
+        if not _FAMILY_PATTERN.fullmatch(value):
+            raise ValueError(f"font family {value!r} must match {_FAMILY_PATTERN.pattern}")
+        return value
+
+
 class FontsConfig(BaseModel):
-    heading: str = "Inter"
-    body: str = "Merriweather"
+    model_config = ConfigDict(extra="forbid")
+    heading: FontSlotConfig = Field(
+        default_factory=lambda: FontSlotConfig(family=DEFAULT_FAMILIES["heading"])
+    )
+    body: FontSlotConfig = Field(
+        default_factory=lambda: FontSlotConfig(family=DEFAULT_FAMILIES["body"])
+    )
+
+    def slots(self) -> tuple[tuple[str, FontSlotConfig], ...]:
+        return (("heading", self.heading), ("body", self.body))
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_the_bare_family_string(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            return normalize_font_slots({"fonts": data})["fonts"]
+        return data
+
+    @model_validator(mode="after")
+    def _fill_default_weights(self) -> "FontsConfig":
+        for slot_name, slot in self.slots():
+            if not slot.weights:
+                slot.weights = dict(DEFAULT_WEIGHTS[slot_name])
+        return self
 
 
 class ColorsConfig(BaseModel):
@@ -230,8 +320,10 @@ def load_site_config(path: Path | None = None) -> SiteConfig:
     template_name = raw_operator.get("template", "default")
     raw_template = _load_template_overrides(template_name)
 
-    merged = deep_merge(raw_template, raw_operator)
-    config = SiteConfig.model_validate(merged)
+    # A bare-string slot must become {"family": ...} before the merge, or an
+    # operator writing `heading: Roboto` would wipe the template's weight roles.
+    merged = deep_merge(normalize_font_slots(raw_template), normalize_font_slots(raw_operator))
+    config = SiteConfig.model_validate(_keep_weights_of_undeclared_slots(merged))
 
     served = normalize_prefix(settings.blog_prefix)
     if served and served != config.blog_prefix:
