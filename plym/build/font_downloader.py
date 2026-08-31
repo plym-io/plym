@@ -1,14 +1,18 @@
 import asyncio
 import hashlib
+import json
+import logging
 import re
 from urllib.parse import parse_qs, quote, urlparse
 
 import aiofiles
 import aiohttp
 
-from plym.build.constants import BASE_URL, HTTP_TIMEOUT, TEXT, USER_AGENT
+from plym.build.constants import BASE_URL, HTTP_TIMEOUT, METADATA_URL, TEXT, USER_AGENT
 from plym.config.site import SiteConfig
 from plym.settings import settings
+
+log = logging.getLogger("plym.build")
 
 _HASH_LEN = 8
 
@@ -22,6 +26,13 @@ _FONT_MAGICS = {
     b"OTTO": "otf",
     b"\x00\x01\x00\x00": "ttf",
 }
+
+# css2 responses degrade rather than fail: an unknown weight comes back as a 200
+# with that face silently absent, and the request only 400s when nothing at all
+# can be served. Every requested face is therefore checked against the response.
+_FACE_PATTERN = re.compile(r"font-family:\s*'([^']+)';[^}]*?font-weight:\s*(\d+)", re.DOTALL)
+
+_METADATA_PREFIX = ")]}'"
 
 
 class UnrecognizedFontError(ValueError):
@@ -38,15 +49,72 @@ def _extension(url: str, payload: bytes) -> str:
 
 class WebFontDownloader:
     def __init__(self, site: SiteConfig) -> None:
-        self._heading = site.fonts.heading
-        self._body = site.fonts.body
+        self._fonts = site.fonts
         self._prefix = site.blog_prefix
 
-    def _url(self) -> str:
-        return (
-            f"{BASE_URL}?family={self._heading}:wght@600;900&family={self._body}"
-            f"&display=swap&text={quote(TEXT)}"
-        )
+    def _families(self) -> dict[str, list[int]]:
+        families: dict[str, set[int]] = {}
+        for _, slot in self._fonts.slots():
+            families.setdefault(slot.family, set()).update(slot.weights.values())
+        return {family: sorted(weights) for family, weights in families.items()}
+
+    def _url(self, family: str, weights: list[int]) -> str:
+        wght = ";".join(str(weight) for weight in weights)
+        return f"{BASE_URL}?family={family}:wght@{wght}&display=swap&text={quote(TEXT)}"
+
+    @staticmethod
+    async def _available_weights(session: aiohttp.ClientSession, family: str) -> str:
+        # Purely diagnostic, and the response shape is a third party's: no
+        # failure here may ever escape and cost the build its webfonts.
+        try:
+            response = await session.get(METADATA_URL.format(family=quote(family)))
+            response.raise_for_status()
+            metadata = json.loads((await response.text()).removeprefix(_METADATA_PREFIX))
+            for axis in metadata.get("axes", []):
+                if axis.get("tag") == "wght":
+                    return f"{axis['min']:g}-{axis['max']:g} (variable)"
+            weights = sorted({int(v) for v in metadata.get("fonts", {}) if v.isdigit()})
+        except Exception:
+            return "unknown (metadata unavailable)"
+        if not weights:
+            return "unknown (metadata unavailable)"
+        return ", ".join(str(weight) for weight in weights)
+
+    async def _family_css(
+        self, session: aiohttp.ClientSession, family: str, weights: list[int]
+    ) -> str:
+        try:
+            response = await session.get(self._url(family, weights))
+            response.raise_for_status()
+            css = await response.text()
+        except (TimeoutError, aiohttp.ClientError) as exc:
+            log.warning(
+                "webfonts: request for %s failed (%s); the family offers %s — "
+                "continuing without it",
+                family,
+                exc,
+                await self._available_weights(session, family),
+            )
+            return ""
+        returned = {int(w) for name, w in _FACE_PATTERN.findall(css) if name == family}
+        if not returned:
+            log.warning(
+                "webfonts: %s returned no usable faces; the family offers %s — "
+                "continuing without it",
+                family,
+                await self._available_weights(session, family),
+            )
+            return ""
+        missing = [weight for weight in weights if weight not in returned]
+        if missing:
+            log.warning(
+                "webfonts: %s has no %s face; the family offers %s — keeping %s",
+                family,
+                ", ".join(str(weight) for weight in missing),
+                await self._available_weights(session, family),
+                ", ".join(str(weight) for weight in sorted(returned)),
+            )
+        return css
 
     @staticmethod
     async def _fetch(session: aiohttp.ClientSession, url: str) -> bytes:
@@ -71,9 +139,13 @@ class WebFontDownloader:
         async with aiohttp.ClientSession(
             timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT}
         ) as session:
-            response = await session.get(self._url())
-            response.raise_for_status()
-            css = await response.text()
+            parts = await asyncio.gather(
+                *(
+                    self._family_css(session, family, weights)
+                    for family, weights in self._families().items()
+                )
+            )
+            css = "\n".join(part for part in parts if part)
 
             urls = list(dict.fromkeys(re.findall(r"url\(['\"]?(.*?)['\"]?\)", css)))
             payloads = await asyncio.gather(*(self._fetch(session, url) for url in urls))

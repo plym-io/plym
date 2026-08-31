@@ -28,7 +28,7 @@
   border-bottom: 2px solid transparent;
   font-family: var(--font-heading), system-ui, sans-serif;
   font-size: 0.85em;
-  font-weight: 600;
+  font-weight: var(--wght-heading-bold, 600);
   color: color-mix(in srgb, var(--color-primary) 55%, transparent);
   white-space: nowrap;
   cursor: pointer;

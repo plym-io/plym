@@ -163,7 +163,14 @@ class CssBundler:
         )
 
     def _fonts_vars(self, fonts: FontsConfig) -> str:
-        return f":root{{--font-heading:'{fonts.heading}';--font-body:'{fonts.body}';}}"
+        decls = []
+        for slot_name, slot in fonts.slots():
+            decls.append(f"--font-{slot_name}:'{slot.family}';")
+            decls += [
+                f"--wght-{slot_name}-{role}:{weight};"
+                for role, weight in sorted(slot.weights.items())
+            ]
+        return ":root{" + "".join(decls) + "}"
 
     def _read(self, path: Path) -> str:
         return path.read_text(encoding="utf-8") if path.exists() else ""
