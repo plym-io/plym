@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from plym.config.site import SiteConfig, load_site_config, normalize_prefix
+from plym.config.site import NavLink, SiteConfig, load_site_config, normalize_prefix
 
 
 @pytest.mark.parametrize(
@@ -263,19 +263,30 @@ def test_header_and_footer_links_carry_their_nesting() -> None:
     config = SiteConfig(
         name="T",
         links={
-            "header": [
-                {"text": "Home", "url": "/"},
-                {
-                    "text": "Resources",
-                    "children": [{"text": "Docs", "url": "https://plym.io/docs/"}],
-                },
-            ],
-            "footer": [{"text": "About", "url": "/about"}],
+            "header": {
+                "Home": "/",
+                "Resources": {"Docs": "https://plym.io/docs/"},
+            },
+            "footer": {"About": "/about"},
         },
     )
     assert [link.text for link in config.links.header] == ["Home", "Resources"]
     assert config.links.header[1].children[0].url == "https://plym.io/docs/"
     assert config.links.footer[0].url == "/about"
+
+
+def test_a_nested_block_may_also_be_written_as_a_list_of_pairs() -> None:
+    config = SiteConfig(
+        name="T",
+        links={"header": {"Resources": [{"Docs": "/docs"}, {"Tools": "/tools"}]}},
+    )
+    assert [child.text for child in config.links.header[0].children] == ["Docs", "Tools"]
+    assert [child.url for child in config.links.header[0].children] == ["/docs", "/tools"]
+
+
+def test_links_render_in_the_order_they_are_written() -> None:
+    config = SiteConfig(name="T", links={"footer": {"Third": "/3", "First": "/1", "Second": "/2"}})
+    assert [link.text for link in config.links.footer] == ["Third", "First", "Second"]
 
 
 def test_a_site_that_configures_no_links_gets_empty_menus() -> None:
@@ -284,44 +295,31 @@ def test_a_site_that_configures_no_links_gets_empty_menus() -> None:
     assert config.links.footer == []
 
 
-def test_a_link_going_nowhere_is_rejected() -> None:
-    with pytest.raises(ValueError, match="either a url or a children list"):
-        SiteConfig(name="T", links={"header": [{"text": "Home"}]})
+def test_a_link_pointing_at_nothing_is_rejected() -> None:
+    with pytest.raises(ValueError, match="must be a url"):
+        SiteConfig(name="T", links={"header": {"Home": None}})
 
 
-def test_a_link_that_is_both_destination_and_menu_is_rejected() -> None:
-    with pytest.raises(ValueError, match="either a url or a children list"):
-        SiteConfig(
-            name="T",
-            links={
-                "header": [
-                    {
-                        "text": "Docs",
-                        "url": "/docs",
-                        "children": [{"text": "API", "url": "/docs/api"}],
-                    }
-                ]
-            },
-        )
+def test_a_link_cannot_be_both_a_url_and_a_group() -> None:
+    with pytest.raises(ValueError, match="cannot be both a url"):
+        NavLink(text="Docs", url="/docs", children=[NavLink(text="API", url="/docs/api")])
 
 
 def test_links_nested_beyond_one_level_are_rejected() -> None:
     with pytest.raises(ValueError, match="one level deep"):
-        SiteConfig(
-            name="T",
-            links={
-                "footer": [
-                    {
-                        "text": "Product",
-                        "children": [
-                            {"text": "Docs", "children": [{"text": "API", "url": "/api"}]}
-                        ],
-                    }
-                ]
-            },
-        )
+        SiteConfig(name="T", links={"footer": {"Product": {"Docs": {"API": "/api"}}}})
 
 
-def test_an_unknown_key_on_a_link_is_rejected() -> None:
-    with pytest.raises(ValueError, match="target"):
-        SiteConfig(name="T", links={"header": [{"text": "Home", "url": "/", "target": "_blank"}]})
+def test_a_link_name_yaml_reads_as_a_boolean_is_rejected() -> None:
+    with pytest.raises(ValueError, match="quote it"):
+        SiteConfig(name="T", links={"header": {True: "/on"}})
+
+
+def test_a_list_entry_that_is_not_a_single_pair_is_rejected() -> None:
+    with pytest.raises(ValueError, match="single 'Name: url' pair"):
+        SiteConfig(name="T", links={"header": {"Resources": [{"Docs": "/docs", "Tools": "/t"}]}})
+
+
+def test_a_navigation_written_as_a_list_is_rejected() -> None:
+    with pytest.raises(ValueError, match="block of 'Name: url' entries"):
+        SiteConfig(name="T", links={"header": [{"text": "Home", "url": "/"}]})

@@ -175,11 +175,13 @@ class NavLink(BaseModel):
 
     @model_validator(mode="after")
     def _leads_somewhere(self) -> "NavLink":
-        if bool(self.url) == bool(self.children):
+        if self.url and self.children:
             raise ValueError(
-                f"link {self.text!r} must have either a url or a children list, not both "
-                "and not neither: a link that opens a menu cannot also be a destination"
+                f"link {self.text!r} cannot be both a url and a block of nested links: "
+                "a menu that opens is not also a destination"
             )
+        if not self.url and not self.children:
+            raise ValueError(f"link {self.text!r} needs a url, or links nested under it")
         if any(child.children for child in self.children):
             raise ValueError(
                 f"link {self.text!r} nests more than one level deep — the header renders "
@@ -188,11 +190,53 @@ class NavLink(BaseModel):
         return self
 
 
+def _nav_links(block: dict[Any, Any]) -> list[NavLink]:
+    links: list[NavLink] = []
+    for label, target in block.items():
+        if not isinstance(label, str):
+            raise ValueError(
+                f"link name {label!r} is not text — quote it, so yaml reads 'on' or '2026' "
+                "as a label rather than a boolean or a number"
+            )
+        if isinstance(target, str):
+            links.append(NavLink(text=label, url=target))
+        else:
+            links.append(NavLink(text=label, children=_nav_links(_nested_block(label, target))))
+    return links
+
+
+def _nested_block(label: str, target: object) -> dict[Any, Any]:
+    if isinstance(target, dict):
+        return target
+    if isinstance(target, list):
+        block: dict[Any, Any] = {}
+        for entry in target:
+            if not isinstance(entry, dict) or len(entry) != 1:
+                raise ValueError(
+                    f"link {label!r} lists {entry!r}, which is not a single 'Name: url' pair"
+                )
+            block.update(entry)
+        return block
+    raise ValueError(f"link {label!r} must be a url, or a block of links nested under it")
+
+
 class LinksConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     header: list[NavLink] = Field(default_factory=list)
     footer: list[NavLink] = Field(default_factory=list)
+
+    @field_validator("header", "footer", mode="before")
+    @classmethod
+    def _from_named_blocks(cls, value: object) -> object:
+        if isinstance(value, list) and all(isinstance(link, NavLink) for link in value):
+            return value
+        if not isinstance(value, dict):
+            raise ValueError(
+                "navigation is a block of 'Name: url' entries, where a name may instead "
+                "carry its own nested block"
+            )
+        return _nav_links(value)
 
 
 class InjectConfig(BaseModel):

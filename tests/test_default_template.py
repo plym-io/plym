@@ -44,14 +44,14 @@ def test_the_lead_collector_endpoint_stays_root_relative_without_a_prefix() -> N
 
 
 LINKS: dict[str, Any] = {
-    "header": [
-        {"text": "Home", "url": "/"},
-        {"text": "Resources", "children": [{"text": "Docs", "url": "https://plym.io/docs/"}]},
-    ],
-    "footer": [
-        {"text": "About", "url": "/about"},
-        {"text": "Product", "children": [{"text": "Pricing", "url": "/pricing"}]},
-    ],
+    "header": {
+        "Home": "/",
+        "Resources": {"Docs": "https://plym.io/docs/"},
+    },
+    "footer": {
+        "About": "/about",
+        "Product": {"Pricing": "/pricing"},
+    },
 }
 
 
@@ -117,7 +117,7 @@ def test_a_blog_without_links_renders_no_navigation() -> None:
 
 
 def test_the_dropdown_script_ships_only_when_a_menu_needs_it() -> None:
-    flat: dict[str, Any] = {"header": [{"text": "Home", "url": "/"}]}
+    flat: dict[str, Any] = {"header": {"Home": "/"}}
     for page in _pages(flat):
         assert "plym-nav-group" not in page
     for page in _pages(LINKS):
@@ -134,15 +134,12 @@ def test_ungrouped_footer_links_sit_below_the_groups_not_on_their_title_row() ->
 
 def test_a_footer_of_groups_alone_renders_no_loose_row() -> None:
     grouped: dict[str, Any] = {
-        "footer": [
-            {
-                "text": "Open Source",
-                "children": [
-                    {"text": "GitHub", "url": "https://github.com/plym-io/plym"},
-                    {"text": "License", "url": "/license"},
-                ],
+        "footer": {
+            "Open Source": {
+                "GitHub": "https://github.com/plym-io/plym",
+                "License": "/license",
             }
-        ]
+        }
     }
     for page in _pages(grouped):
         assert '<p class="plym-footer-group-title">Open Source</p>' in page
@@ -151,10 +148,10 @@ def test_a_footer_of_groups_alone_renders_no_loose_row() -> None:
 
 def test_a_footer_of_loose_links_alone_renders_no_columns() -> None:
     flat: dict[str, Any] = {
-        "footer": [
-            {"text": "GitHub", "url": "https://github.com/plym-io/plym"},
-            {"text": "License", "url": "/license"},
-        ]
+        "footer": {
+            "GitHub": "https://github.com/plym-io/plym",
+            "License": "/license",
+        }
     }
     for page in _pages(flat):
         assert '<a class="plym-footer-link" href="/license">License</a>' in page
