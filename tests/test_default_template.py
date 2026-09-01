@@ -122,3 +122,40 @@ def test_the_dropdown_script_ships_only_when_a_menu_needs_it() -> None:
         assert "plym-nav-group" not in page
     for page in _pages(LINKS):
         assert "document.querySelectorAll('.plym-nav-group')" in page
+
+
+def test_ungrouped_footer_links_sit_below_the_groups_not_on_their_title_row() -> None:
+    for page in _pages(LINKS):
+        columns = page.index('class="plym-footer-columns"')
+        loose = page.index('class="plym-footer-links"')
+        assert columns < loose
+        assert '<a class="plym-footer-link" href="/about">About</a>' not in page[columns:loose]
+
+
+def test_a_footer_of_groups_alone_renders_no_loose_row() -> None:
+    grouped: dict[str, Any] = {
+        "footer": [
+            {
+                "text": "Open Source",
+                "children": [
+                    {"text": "GitHub", "url": "https://github.com/plym-io/plym"},
+                    {"text": "License", "url": "/license"},
+                ],
+            }
+        ]
+    }
+    for page in _pages(grouped):
+        assert '<p class="plym-footer-group-title">Open Source</p>' in page
+        assert "plym-footer-links" not in page
+
+
+def test_a_footer_of_loose_links_alone_renders_no_columns() -> None:
+    flat: dict[str, Any] = {
+        "footer": [
+            {"text": "GitHub", "url": "https://github.com/plym-io/plym"},
+            {"text": "License", "url": "/license"},
+        ]
+    }
+    for page in _pages(flat):
+        assert '<a class="plym-footer-link" href="/license">License</a>' in page
+        assert "plym-footer-columns" not in page
