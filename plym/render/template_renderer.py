@@ -46,6 +46,7 @@ class TemplateRenderer:
         return {
             **context,
             "site": self._site,
+            "links": self._site.links,
             "debug": settings.debug,
         }
 

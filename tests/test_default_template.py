@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 os.environ.setdefault("PLYM_JWT_SECRET", "plym-default-template-unit-tests")
 
@@ -40,3 +41,118 @@ def test_the_lead_collector_posts_to_the_blogs_own_prefix() -> None:
 
 def test_the_lead_collector_endpoint_stays_root_relative_without_a_prefix() -> None:
     assert 'data-endpoint="/api/collect"' in _index_at("")
+
+
+LINKS: dict[str, Any] = {
+    "header": {
+        "Home": "/",
+        "Resources": {"Docs": "https://plym.io/docs/"},
+    },
+    "footer": {
+        "About": "/about",
+        "Product": {"Pricing": "/pricing"},
+    },
+}
+
+
+def _post_context() -> dict[str, Any]:
+    return {
+        "render_stamp": "0123456789abcdef",
+        "post": {
+            "slug": "hello",
+            "path": "hello",
+            "category": None,
+            "title": "Hello",
+            "content": "<p>Hello</p>",
+            "excerpt": None,
+            "cover": None,
+            "canonical": "https://plym.local/hello",
+            "author": {"display_name": "Ada", "avatar_url": None, "links": []},
+            "reading_time": 1,
+            "published_at": None,
+            "updated_at": None,
+            "tags": [],
+            "faqs": [],
+            "faq_jsonld": None,
+            "article_jsonld": "{}",
+            "toc": [],
+        },
+    }
+
+
+def _pages(links: dict[str, Any]) -> list[str]:
+    renderer = TemplateRenderer(SiteConfig(name="Acme", links=links))
+    pagination = {
+        "page": 1,
+        "pages": 1,
+        "prev_url": None,
+        "next_url": None,
+        "canonical": "https://plym.local/",
+    }
+    return [
+        renderer.render_index({"posts": [], "pagination": pagination}),
+        renderer.render_post(_post_context()),
+    ]
+
+
+def test_both_pages_render_the_configured_header_links() -> None:
+    for page in _pages(LINKS):
+        assert '<a class="plym-nav-link" href="/">Home</a>' in page
+        assert '<summary class="plym-nav-summary">Resources</summary>' in page
+        assert '<a class="plym-nav-link" href="https://plym.io/docs/">Docs</a>' in page
+
+
+def test_both_pages_render_the_configured_footer_links() -> None:
+    for page in _pages(LINKS):
+        assert '<a class="plym-footer-link" href="/about">About</a>' in page
+        assert '<p class="plym-footer-group-title">Product</p>' in page
+        assert '<a href="/pricing">Pricing</a>' in page
+
+
+def test_a_blog_without_links_renders_no_navigation() -> None:
+    for page in _pages({}):
+        assert "plym-nav" not in page
+        assert "plym-footer-nav" not in page
+        assert "plym-header-navigated" not in page
+
+
+def test_the_dropdown_script_ships_only_when_a_menu_needs_it() -> None:
+    flat: dict[str, Any] = {"header": {"Home": "/"}}
+    for page in _pages(flat):
+        assert "plym-nav-group" not in page
+    for page in _pages(LINKS):
+        assert "document.querySelectorAll('.plym-nav-group')" in page
+
+
+def test_ungrouped_footer_links_sit_below_the_groups_not_on_their_title_row() -> None:
+    for page in _pages(LINKS):
+        columns = page.index('class="plym-footer-columns"')
+        loose = page.index('class="plym-footer-links"')
+        assert columns < loose
+        assert '<a class="plym-footer-link" href="/about">About</a>' not in page[columns:loose]
+
+
+def test_a_footer_of_groups_alone_renders_no_loose_row() -> None:
+    grouped: dict[str, Any] = {
+        "footer": {
+            "Open Source": {
+                "GitHub": "https://github.com/plym-io/plym",
+                "License": "/license",
+            }
+        }
+    }
+    for page in _pages(grouped):
+        assert '<p class="plym-footer-group-title">Open Source</p>' in page
+        assert "plym-footer-links" not in page
+
+
+def test_a_footer_of_loose_links_alone_renders_no_columns() -> None:
+    flat: dict[str, Any] = {
+        "footer": {
+            "GitHub": "https://github.com/plym-io/plym",
+            "License": "/license",
+        }
+    }
+    for page in _pages(flat):
+        assert '<a class="plym-footer-link" href="/license">License</a>' in page
+        assert "plym-footer-columns" not in page

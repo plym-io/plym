@@ -40,6 +40,24 @@ inject:
   head: ""
   body: ""
 
+# Header and footer navigation, written as 'Name: url' and read in templates as
+# links.header and links.footer. A name may carry its own block instead of a url; that
+# block renders as a dropdown in the header and as a titled column in the footer, and
+# nests one level deep. Grouping is per link: footer links left ungrouped render as one
+# row beneath the columns. Links appear in the order they are written, and a nested block
+# may also be spelled as a list of '- Name: url' pairs.
+# links:
+#   header:
+#     Home: /
+#     Resources:
+#       Docs: https://plym.io/docs/
+#       Templates: https://plym.io/templates
+#   footer:
+#     Open Source:
+#       GitHub: https://github.com/plym-io/plym
+#       License: https://github.com/plym-io/plym/blob/main/LICENSE
+#     About: /about
+
 pagination:
   page_size: 10
 
